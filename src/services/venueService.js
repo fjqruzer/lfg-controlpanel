@@ -2,18 +2,21 @@
 // This service layer handles all venue-related data operations
 // Currently uses mock data - replace with real API calls when backend is ready
 
-import { mockVenues } from '@/data/mockVenues';
+import { mockVenues } from "@/data/mockVenues";
+import { apiClient } from "@/lib/apiClient";
 
-// Simulate API delay for realistic behavior
-const delay = (ms = 300) => new Promise(resolve => setTimeout(resolve, ms));
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
 
 /**
  * Get all venues
  * @returns {Promise<Array>} Array of venue objects
  */
 export const getVenues = async () => {
-  await delay();
-  return mockVenues;
+  if (USE_MOCK) {
+    return mockVenues;
+  }
+  // Backend: GET /venues (with optional filters/pagination)
+  return apiClient.get("/venues");
 };
 
 /**
@@ -22,8 +25,11 @@ export const getVenues = async () => {
  * @returns {Promise<Object|null>} Venue object or null if not found
  */
 export const getVenueBySlug = async (slug) => {
-  await delay();
-  return mockVenues.find(venue => venue.slug === slug) || null;
+  if (USE_MOCK) {
+    return mockVenues.find((venue) => venue.slug === slug) || null;
+  }
+  // Slug is mock-only; real API uses ID routes.
+  return null;
 };
 
 /**
@@ -32,8 +38,10 @@ export const getVenueBySlug = async (slug) => {
  * @returns {Promise<Object|null>} Venue object or null if not found
  */
 export const getVenueById = async (id) => {
-  await delay();
-  return mockVenues.find(venue => venue.id === id) || null;
+  if (USE_MOCK) {
+    return mockVenues.find((venue) => venue.id === id) || null;
+  }
+  return apiClient.get(`/venues/show/${id}`);
 };
 
 /**
@@ -42,14 +50,15 @@ export const getVenueById = async (id) => {
  * @returns {Promise<Object>} Created venue object
  */
 export const createVenue = async (venueData) => {
-  await delay();
-  // In real implementation, this would POST to API
-  const newVenue = {
-    id: Date.now(),
-    ...venueData,
-    createdDate: new Date().toISOString().split('T')[0]
-  };
-  return newVenue;
+  if (USE_MOCK) {
+    const newVenue = {
+      id: Date.now(),
+      ...venueData,
+      createdDate: new Date().toISOString().split("T")[0],
+    };
+    return newVenue;
+  }
+  return apiClient.post("/venues/create", venueData);
 };
 
 /**
@@ -59,11 +68,12 @@ export const createVenue = async (venueData) => {
  * @returns {Promise<Object>} Updated venue object
  */
 export const updateVenue = async (id, updates) => {
-  await delay();
-  // In real implementation, this would PUT/PATCH to API
-  const venue = mockVenues.find(v => v.id === id);
-  if (!venue) throw new Error('Venue not found');
-  return { ...venue, ...updates };
+  if (USE_MOCK) {
+    const venue = mockVenues.find((v) => v.id === id);
+    if (!venue) throw new Error("Venue not found");
+    return { ...venue, ...updates };
+  }
+  return apiClient.post(`/venues/edit/${id}`, updates);
 };
 
 /**
@@ -72,9 +82,10 @@ export const updateVenue = async (id, updates) => {
  * @returns {Promise<boolean>} Success status
  */
 export const deleteVenue = async (id) => {
-  await delay();
-  // In real implementation, this would DELETE to API
-  return true;
+  if (USE_MOCK) {
+    return true;
+  }
+  return apiClient.del(`/venues/delete/${id}`);
 };
 
 /**
@@ -83,44 +94,38 @@ export const deleteVenue = async (id) => {
  * @returns {Promise<Array>} Filtered venues
  */
 export const filterVenues = async (filters) => {
-  await delay();
-  let filtered = [...mockVenues];
+  if (USE_MOCK) {
+    let filtered = [...mockVenues];
 
-  if (filters.region && filters.region !== 'All') {
-    filtered = filtered.filter(v => v.region === filters.region);
+    if (filters.region && filters.region !== "All") {
+      filtered = filtered.filter((v) => v.region === filters.region);
+    }
+
+    if (filters.sportType && filters.sportType !== "All") {
+      filtered = filtered.filter((v) => v.sportType === filters.sportType);
+    }
+
+    if (filters.status && filters.status !== "All") {
+      filtered = filtered.filter((v) => v.status === filters.status);
+    }
+
+    if (filters.query) {
+      const query = filters.query.toLowerCase();
+      filtered = filtered.filter(
+        (v) =>
+          v.name.toLowerCase().includes(query) ||
+          v.address.toLowerCase().includes(query) ||
+          v.city.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
   }
 
-  if (filters.sportType && filters.sportType !== 'All') {
-    filtered = filtered.filter(v => v.sportType === filters.sportType);
-  }
-
-  if (filters.status && filters.status !== 'All') {
-    filtered = filtered.filter(v => v.status === filters.status);
-  }
-
-  if (filters.query) {
-    const query = filters.query.toLowerCase();
-    filtered = filtered.filter(v => 
-      v.name.toLowerCase().includes(query) ||
-      v.address.toLowerCase().includes(query) ||
-      v.city.toLowerCase().includes(query)
-    );
-  }
-
-  return filtered;
+  // For real API, delegate to getVenues; keep this for backwards compatibility
+  return getVenues(filters);
 };
 
-// When ready to connect to real API, replace implementations like this:
-/*
-export const getVenues = async () => {
-  const response = await fetch('/api/venues');
-  if (!response.ok) throw new Error('Failed to fetch venues');
-  return response.json();
-};
+// Note: getVenues returns raw mock data in mock mode, or the Laravel
+// paginator response in real mode: { data: T[], meta, links? }.
 
-export const getVenueBySlug = async (slug) => {
-  const response = await fetch(`/api/venues/${slug}`);
-  if (!response.ok) throw new Error('Venue not found');
-  return response.json();
-};
-*/

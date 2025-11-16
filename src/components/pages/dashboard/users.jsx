@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -32,111 +32,13 @@ import {
   NoSymbolIcon,
   CheckCircleIcon,
   ChevronUpDownIcon,
-  CalendarIcon,
   XMarkIcon,
 } from "@heroicons/react/24/solid";
-
-// Mock user data with all required fields
-const mockUsers = [
-  { 
-    id: 1, 
-    username: "marco_santos",
-    fullName: "Marco Santos", 
-    email: "marco@example.com", 
-    role: "Organizer", 
-    status: "Active", 
-    mainSport: "Basketball",
-    registrationDate: "2024-01-15",
-    avatar: "https://i.pravatar.cc/80?img=1",
-    eventsCreated: 45,
-    eventsJoined: 32,
-    rating: 4.8
-  },
-  { 
-    id: 2, 
-    username: "bea_lim",
-    fullName: "Bea Lim", 
-    email: "bea@example.com", 
-    role: "Player", 
-    status: "Active", 
-    mainSport: "Badminton",
-    registrationDate: "2024-02-20",
-    avatar: "https://i.pravatar.cc/80?img=2",
-    eventsCreated: 12,
-    eventsJoined: 67,
-    rating: 4.9
-  },
-  { 
-    id: 3, 
-    username: "ken_reyes",
-    fullName: "Ken Reyes", 
-    email: "ken@example.com", 
-    role: "Player", 
-    status: "Banned", 
-    mainSport: "Football",
-    registrationDate: "2024-01-08",
-    avatar: "https://i.pravatar.cc/80?img=3",
-    eventsCreated: 8,
-    eventsJoined: 45,
-    rating: 3.2
-  },
-  { 
-    id: 4, 
-    username: "toni_cruz",
-    fullName: "Toni Cruz", 
-    email: "toni@example.com", 
-    role: "Coach", 
-    status: "Active", 
-    mainSport: "Tennis",
-    registrationDate: "2024-03-10",
-    avatar: "https://i.pravatar.cc/80?img=4",
-    eventsCreated: 28,
-    eventsJoined: 15,
-    rating: 4.7
-  },
-  { 
-    id: 5, 
-    username: "ana_garcia",
-    fullName: "Ana Garcia", 
-    email: "ana@example.com", 
-    role: "Player", 
-    status: "Active", 
-    mainSport: "Volleyball",
-    registrationDate: "2024-02-14",
-    avatar: "https://i.pravatar.cc/80?img=5",
-    eventsCreated: 15,
-    eventsJoined: 89,
-    rating: 4.6
-  },
-  { 
-    id: 6, 
-    username: "carlos_lopez",
-    fullName: "Carlos Lopez", 
-    email: "carlos@example.com", 
-    role: "Organizer", 
-    status: "Active", 
-    mainSport: "Basketball",
-    registrationDate: "2023-12-05",
-    avatar: "https://i.pravatar.cc/80?img=6",
-    eventsCreated: 67,
-    eventsJoined: 23,
-    rating: 4.9
-  },
-  { 
-    id: 7, 
-    username: "sara_martinez",
-    fullName: "Sara Martinez", 
-    email: "sara@example.com", 
-    role: "Player", 
-    status: "Banned", 
-    mainSport: "Swimming",
-    registrationDate: "2024-01-22",
-    avatar: "https://i.pravatar.cc/80?img=7",
-    eventsCreated: 5,
-    eventsJoined: 34,
-    rating: 2.8
-  },
-];
+import {
+  getAdminUsers,
+  deleteAdminUser,
+} from "@/services/adminUserService";
+import { exportUsers } from "@/services/adminExportService";
 
 const roles = ["All", "Organizer", "Player", "Coach"];
 const sports = ["All", "Basketball", "Badminton", "Football", "Tennis", "Volleyball", "Swimming"];
@@ -144,6 +46,12 @@ const statuses = ["All", "Active", "Inactive", "Banned"];
 
 export function Users() {
   const [query, setQuery] = useState("");
+  const [users, setUsers] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [page, setPage] = useState(1);
+  const perPage = 20;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [roleFilter, setRoleFilter] = useState("All");
   const [sportFilter, setSportFilter] = useState("All");
@@ -154,30 +62,88 @@ export function Users() {
   const [showBanDialog, setShowBanDialog] = useState(false);
   const [userToBan, setUserToBan] = useState(null);
 
-  // Filter and sort users
-  const filtered = mockUsers
+  const loadUsers = async (opts = {}) => {
+    try {
+      setLoading(true);
+      setError("");
+      const params = {
+        q: query || undefined,
+        role: roleFilter !== "All" ? roleFilter : undefined,
+        page,
+        per_page: perPage,
+        ...opts,
+      };
+      const res = await getAdminUsers(params);
+      const list = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      setUsers(list);
+      setMeta(res.meta || null);
+    } catch (err) {
+      setError(err.message || "Failed to load users");
+      setUsers([]);
+      setMeta(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  const filtered = users
     .filter((u) => {
-      const matchesSearch = u.fullName.toLowerCase().includes(query.toLowerCase()) || 
-                           u.email.toLowerCase().includes(query.toLowerCase()) ||
-                           u.username.toLowerCase().includes(query.toLowerCase());
-      const matchesRole = roleFilter === "All" || u.role === roleFilter;
-      const matchesSport = sportFilter === "All" || u.mainSport === sportFilter;
-      const matchesStatus = statusFilter === "All" || u.status === statusFilter;
-      
+      const fullName =
+        [u.first_name, u.last_name].filter(Boolean).join(" ") ||
+        u.fullName ||
+        "";
+      const username = u.username || "";
+      const email = u.email || "";
+      const role = u.role?.name || u.role || "";
+      const mainSport = u.mainSport || "";
+
+      const matchesSearch =
+        fullName.toLowerCase().includes(query.toLowerCase()) ||
+        email.toLowerCase().includes(query.toLowerCase()) ||
+        username.toLowerCase().includes(query.toLowerCase());
+      const matchesRole =
+        roleFilter === "All" || role.toLowerCase() === roleFilter.toLowerCase();
+      const matchesSport =
+        sportFilter === "All" ||
+        mainSport.toLowerCase() === sportFilter.toLowerCase();
+      const matchesStatus =
+        statusFilter === "All" ||
+        (u.status || "").toLowerCase() === statusFilter.toLowerCase();
+
       return matchesSearch && matchesRole && matchesSport && matchesStatus;
     })
     .sort((a, b) => {
-      if (sortBy === "fullName" || sortBy === "username" || sortBy === "email" || sortBy === "mainSport") {
-        return sortOrder === "asc" 
-          ? a[sortBy].localeCompare(b[sortBy])
-          : b[sortBy].localeCompare(a[sortBy]);
-      }
+      const fieldMap = {
+        fullName: (user) =>
+          [user.first_name, user.last_name].filter(Boolean).join(" ") ||
+          user.fullName ||
+          "",
+        username: (user) => user.username || "",
+        email: (user) => user.email || "",
+        mainSport: (user) => user.mainSport || "",
+        registrationDate: (user) => user.created_at || user.registrationDate,
+      };
+
+      const getter = fieldMap[sortBy];
+      if (!getter) return 0;
+
+      const aVal = getter(a) || "";
+      const bVal = getter(b) || "";
+
       if (sortBy === "registrationDate") {
-        return sortOrder === "asc" 
-          ? new Date(a.registrationDate) - new Date(b.registrationDate)
-          : new Date(b.registrationDate) - new Date(a.registrationDate);
+        const aDate = aVal ? new Date(aVal).getTime() : 0;
+        const bDate = bVal ? new Date(bVal).getTime() : 0;
+        return sortOrder === "asc" ? aDate - bDate : bDate - aDate;
       }
-      return 0;
+
+      return sortOrder === "asc"
+        ? String(aVal).localeCompare(String(bVal))
+        : String(bVal).localeCompare(String(aVal));
     });
 
   const handleSelectAll = () => {
@@ -210,31 +176,11 @@ export function Users() {
     setShowBanDialog(true);
   };
 
-  const handleExport = (format) => {
-    const dataToExport = selectedUsers.length > 0 
-      ? mockUsers.filter(u => selectedUsers.includes(u.id))
-      : filtered;
-    
-    if (format === "csv") {
-      // Create CSV content
-      const headers = ["Username", "Full Name", "Email", "Role", "Main Sport", "Status", "Registration Date"];
-      const rows = dataToExport.map(u => [
-        u.username,
-        u.fullName,
-        u.email,
-        u.role,
-        u.mainSport,
-        u.status,
-        u.registrationDate
-      ]);
-      
-      const csvContent = [headers, ...rows].map(row => row.join(",")).join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `users_export_${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
+  const handleExport = async () => {
+    try {
+      await exportUsers();
+    } catch (err) {
+      alert(err.message || "Export failed");
     }
   };
 
@@ -362,7 +308,7 @@ export function Users() {
                   variant="text" 
                   color="white"
                   className="normal-case"
-                  onClick={() => handleExport("csv")}
+                  onClick={handleExport}
                 >
                   <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
                   Export CSV
@@ -373,6 +319,14 @@ export function Users() {
         </CardHeader>
         
         <CardBody className="overflow-x-scroll px-0 pt-0 pb-2">
+          {error && (
+            <Typography
+              variant="small"
+              className="text-red-500 px-6 pt-4 pb-2 font-medium"
+            >
+              {error}
+            </Typography>
+          )}
           <table className="w-full min-w-[1200px] table-auto">
             <thead>
               <tr>
@@ -411,78 +365,126 @@ export function Users() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((u, idx) => (
-                <tr key={u.id}>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Checkbox
-                      checked={selectedUsers.includes(u.id)}
-                      onChange={() => handleSelectUser(u.id)}
-                      color="gray"
-                    />
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Avatar src={u.avatar} alt={u.fullName} size="sm" variant="rounded" />
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Typography variant="small" color="blue-gray" className="font-semibold">
-                      {u.username}
-                    </Typography>
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Typography variant="small" color="blue-gray" className="font-semibold">
-                      {u.fullName}
-                    </Typography>
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Typography className="text-xs font-semibold text-blue-gray-600">{u.email}</Typography>
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Chip variant="gradient" color="blue" value={u.role} className="py-0.5 px-2 text-[11px] font-medium w-fit" />
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Chip variant="gradient" color="purple" value={u.mainSport} className="py-0.5 px-2 text-[11px] font-medium w-fit" />
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <StatusChip status={u.status} type="user" />
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <Typography className="text-xs font-normal text-blue-gray-600">
-                      {new Date(u.registrationDate).toLocaleDateString()}
-                    </Typography>
-                  </td>
-                  <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                    <div className="flex items-center gap-2">
-                      <IconButton 
-                        variant="text" 
-                        color={u.status === "Banned" ? "green" : "red"}
-                        onClick={() => handleBanUser(u)}
-                        title={u.status === "Banned" ? "Unban user" : "Ban user"}
-                      >
-                        {u.status === "Banned" ? (
-                          <CheckCircleIcon className="h-5 w-5" />
-                        ) : (
-                          <NoSymbolIcon className="h-5 w-5" />
-                        )}
-                      </IconButton>
-                      <IconButton variant="text" color="blue-gray">
-                        <PencilSquareIcon className="h-5 w-5" />
-                      </IconButton>
-                      <Menu placement="left-start">
-                        <MenuHandler>
-                          <IconButton variant="text" color="blue-gray">
-                            <EllipsisVerticalIcon className="h-5 w-5" />
-                          </IconButton>
-                        </MenuHandler>
-                        <MenuList>
-                          <MenuItem onClick={() => window.open(`/dashboard/users/${u.id}`, '_blank')}>
-                            View Details
-                          </MenuItem>
-                        </MenuList>
-                      </Menu>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={10}
+                    className="py-6 px-5 text-center text-blue-gray-400"
+                  >
+                    Loading users...
                   </td>
                 </tr>
-              ))}
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={10}
+                    className="py-6 px-5 text-center text-blue-gray-400"
+                  >
+                    No users found.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((u, idx) => {
+                  return (
+                    <tr key={u.id}>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Checkbox
+                          checked={selectedUsers.includes(u.id)}
+                          onChange={() => handleSelectUser(u.id)}
+                          color="gray"
+                        />
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Avatar
+                          src={u.avatar}
+                          alt={
+                            [u.first_name, u.last_name].filter(Boolean).join(" ") ||
+                            u.fullName ||
+                            u.username ||
+                            ""
+                          }
+                          size="sm"
+                          variant="rounded"
+                        />
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Typography variant="small" color="blue-gray" className="font-semibold">
+                          {u.username || "—"}
+                        </Typography>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Typography variant="small" color="blue-gray" className="font-semibold">
+                          {[u.first_name, u.last_name].filter(Boolean).join(" ") ||
+                            u.fullName ||
+                            "—"}
+                        </Typography>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Typography className="text-xs font-semibold text-blue-gray-600">
+                          {u.email}
+                        </Typography>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Chip
+                          variant="gradient"
+                          color="blue"
+                          value={u.role?.name || u.role || "—"}
+                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
+                        />
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Chip
+                          variant="gradient"
+                          color="purple"
+                          value={u.mainSport || "—"}
+                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
+                        />
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <StatusChip status={u.status || "Active"} type="user" />
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Typography className="text-xs font-normal text-blue-gray-600">
+                          {new Date(
+                            u.created_at || u.registrationDate || new Date()
+                          ).toLocaleDateString()}
+                        </Typography>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <div className="flex items-center gap-2">
+                          <IconButton 
+                            variant="text" 
+                            color={u.status === "Banned" ? "green" : "red"}
+                            onClick={() => handleBanUser(u)}
+                            title={u.status === "Banned" ? "Unban user" : "Ban user"}
+                          >
+                            {u.status === "Banned" ? (
+                              <CheckCircleIcon className="h-5 w-5" />
+                            ) : (
+                              <NoSymbolIcon className="h-5 w-5" />
+                            )}
+                          </IconButton>
+                          <IconButton variant="text" color="blue-gray">
+                            <PencilSquareIcon className="h-5 w-5" />
+                          </IconButton>
+                          <Menu placement="left-start">
+                            <MenuHandler>
+                              <IconButton variant="text" color="blue-gray">
+                                <EllipsisVerticalIcon className="h-5 w-5" />
+                              </IconButton>
+                            </MenuHandler>
+                            <MenuList>
+                              <MenuItem onClick={() => window.open(`/dashboard/users/${u.id}`, '_blank')}>
+                                View Details
+                              </MenuItem>
+                            </MenuList>
+                          </Menu>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </CardBody>
@@ -531,6 +533,37 @@ export function Users() {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {meta && (
+        <div className="flex items-center justify-between mt-4">
+          <Typography variant="small" className="text-blue-gray-600">
+            Page {meta.current_page} of {meta.last_page} • Total {meta.total}{" "}
+            users
+          </Typography>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outlined"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </Button>
+            <Button
+              variant="outlined"
+              size="sm"
+              disabled={meta && page >= meta.last_page}
+              onClick={() =>
+                setPage((p) =>
+                  meta ? Math.min(meta.last_page, p + 1) : p + 1
+                )
+              }
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

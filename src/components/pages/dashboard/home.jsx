@@ -26,11 +26,77 @@ import {
   lfgStatisticsChartsData,
   lfgSessionsTableData,
 } from "@/data";
+import { useEffect, useState } from "react";
+import { getOverviewDashboard } from "@/services/adminDashboardService";
 import { CheckCircleIcon, ClockIcon } from "@heroicons/react/24/solid";
 
 export function Home() {
+  const [overview, setOverview] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState("");
+
+  useEffect(() => {
+    const loadOverview = async () => {
+      try {
+        setOverviewLoading(true);
+        setOverviewError("");
+        const data = await getOverviewDashboard();
+        setOverview(data);
+      } catch (err) {
+        setOverviewError(err.message || "Failed to load overview");
+      } finally {
+        setOverviewLoading(false);
+      }
+    };
+
+    loadOverview();
+  }, []);
+
   return (
     <div className="mt-8">
+      <div className="mb-6">
+        <Card>
+          <CardHeader variant="gradient" color="gray" className="p-4">
+            <Typography variant="h6" color="white">
+              Admin Overview
+            </Typography>
+            <Typography variant="small" className="text-white/90">
+              Live totals from the backend API
+            </Typography>
+          </CardHeader>
+          <CardBody className="p-4">
+            {overviewLoading && (
+              <Typography variant="small" className="text-blue-gray-600">
+                Loading overview...
+              </Typography>
+            )}
+            {overviewError && (
+              <Typography variant="small" className="text-red-500">
+                {overviewError}
+              </Typography>
+            )}
+            {overview && !overviewLoading && !overviewError && (
+              <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+                <StatCard label="Users" value={overview.totals?.users} />
+                <StatCard label="Venues" value={overview.totals?.venues} />
+                <StatCard
+                  label="Upcoming Events"
+                  value={overview.totals?.events_upcoming}
+                />
+                <StatCard
+                  label="Active Events"
+                  value={overview.totals?.events_active}
+                />
+                <StatCard
+                  label="Open Tickets"
+                  value={overview.totals?.tickets_open}
+                />
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
       {/* Statistics Cards - 3 cards per row */}
       <div className="mb-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {lfgStatisticsCardsData.map(({ icon, title, footer, ...rest }) => (
@@ -251,6 +317,17 @@ export function Home() {
         </Card>
       </div>
 
+    </div>
+  );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <div className="border rounded p-4 bg-white shadow-sm">
+      <div className="text-xs uppercase text-gray-500">{label}</div>
+      <div className="text-2xl font-semibold mt-1">
+        {typeof value === "number" ? value : "—"}
+      </div>
     </div>
   );
 }

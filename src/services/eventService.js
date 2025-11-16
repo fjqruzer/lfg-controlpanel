@@ -2,18 +2,21 @@
 // This service layer handles all event-related data operations
 // Currently uses mock data - replace with real API calls when backend is ready
 
-import { mockEvents } from '@/data/mockEvents';
+import { mockEvents } from "@/data/mockEvents";
+import { apiClient } from "@/lib/apiClient";
 
-// Simulate API delay for realistic behavior
-const delay = (ms = 300) => new Promise(resolve => setTimeout(resolve, ms));
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
 
 /**
  * Get all events
  * @returns {Promise<Array>} Array of event objects
  */
-export const getEvents = async () => {
-  await delay();
-  return mockEvents;
+export const getEvents = async (filters = {}) => {
+  if (USE_MOCK) {
+    return mockEvents;
+  }
+  // Laravel: GET /events with filters (q, sport, venue_id, date_from, date_to, page, per_page)
+  return apiClient.get("/events", filters);
 };
 
 /**
@@ -22,8 +25,11 @@ export const getEvents = async () => {
  * @returns {Promise<Object|null>} Event object or null if not found
  */
 export const getEventBySlug = async (slug) => {
-  await delay();
-  return mockEvents.find(event => event.slug === slug) || null;
+  if (USE_MOCK) {
+    return mockEvents.find((event) => event.slug === slug) || null;
+  }
+  // if backend uses id-based route, slug handling may be different; keep mock-only for now
+  return null;
 };
 
 /**
@@ -32,8 +38,10 @@ export const getEventBySlug = async (slug) => {
  * @returns {Promise<Object|null>} Event object or null if not found
  */
 export const getEventById = async (id) => {
-  await delay();
-  return mockEvents.find(event => event.id === id) || null;
+  if (USE_MOCK) {
+    return mockEvents.find((event) => event.id === id) || null;
+  }
+  return apiClient.get(`/events/${id}`);
 };
 
 /**
@@ -42,14 +50,16 @@ export const getEventById = async (id) => {
  * @returns {Promise<Object>} Created event object
  */
 export const createEvent = async (eventData) => {
-  await delay();
-  // In real implementation, this would POST to API
-  const newEvent = {
-    id: Date.now(),
-    ...eventData,
-    createdDate: new Date().toISOString().split('T')[0]
-  };
-  return newEvent;
+  if (USE_MOCK) {
+    const newEvent = {
+      id: Date.now(),
+      ...eventData,
+      createdDate: new Date().toISOString().split("T")[0],
+    };
+    return newEvent;
+  }
+  // Backend: POST /events/create
+  return apiClient.post("/events/create", eventData);
 };
 
 /**
@@ -59,11 +69,13 @@ export const createEvent = async (eventData) => {
  * @returns {Promise<Object>} Updated event object
  */
 export const updateEvent = async (id, updates) => {
-  await delay();
-  // In real implementation, this would PUT/PATCH to API
-  const event = mockEvents.find(e => e.id === id);
-  if (!event) throw new Error('Event not found');
-  return { ...event, ...updates };
+  if (USE_MOCK) {
+    const event = mockEvents.find((e) => e.id === id);
+    if (!event) throw new Error("Event not found");
+    return { ...event, ...updates };
+  }
+  // Backend guide prefers PUT /events/{id}
+  return apiClient.patch(`/events/${id}`, updates);
 };
 
 /**
@@ -72,9 +84,10 @@ export const updateEvent = async (id, updates) => {
  * @returns {Promise<boolean>} Success status
  */
 export const deleteEvent = async (id) => {
-  await delay();
-  // In real implementation, this would DELETE to API
-  return true;
+  if (USE_MOCK) {
+    return true;
+  }
+  return apiClient.del(`/events/${id}`);
 };
 
 /**
@@ -83,52 +96,46 @@ export const deleteEvent = async (id) => {
  * @returns {Promise<Array>} Filtered events
  */
 export const filterEvents = async (filters) => {
-  await delay();
-  let filtered = [...mockEvents];
+  if (USE_MOCK) {
+    let filtered = [...mockEvents];
 
-  if (filters.eventType && filters.eventType !== 'All') {
-    filtered = filtered.filter(e => e.eventType === filters.eventType);
+    if (filters.eventType && filters.eventType !== "All") {
+      filtered = filtered.filter((e) => e.eventType === filters.eventType);
+    }
+
+    if (filters.sport && filters.sport !== "All") {
+      filtered = filtered.filter((e) => e.sport === filters.sport);
+    }
+
+    if (filters.status && filters.status !== "All") {
+      filtered = filtered.filter((e) => e.status === filters.status);
+    }
+
+    if (filters.venue && filters.venue !== "All") {
+      filtered = filtered.filter((e) => e.venue.name === filters.venue);
+    }
+
+    if (filters.date) {
+      filtered = filtered.filter((e) => e.date === filters.date);
+    }
+
+    if (filters.query) {
+      const query = filters.query.toLowerCase();
+      filtered = filtered.filter(
+        (e) =>
+          e.name.toLowerCase().includes(query) ||
+          e.host.fullName.toLowerCase().includes(query) ||
+          e.venue.name.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
   }
 
-  if (filters.sport && filters.sport !== 'All') {
-    filtered = filtered.filter(e => e.sport === filters.sport);
-  }
-
-  if (filters.status && filters.status !== 'All') {
-    filtered = filtered.filter(e => e.status === filters.status);
-  }
-
-  if (filters.venue && filters.venue !== 'All') {
-    filtered = filtered.filter(e => e.venue.name === filters.venue);
-  }
-
-  if (filters.date) {
-    filtered = filtered.filter(e => e.date === filters.date);
-  }
-
-  if (filters.query) {
-    const query = filters.query.toLowerCase();
-    filtered = filtered.filter(e => 
-      e.name.toLowerCase().includes(query) ||
-      e.host.fullName.toLowerCase().includes(query) ||
-      e.venue.name.toLowerCase().includes(query)
-    );
-  }
-
-  return filtered;
+  // For real API, use getEvents with filters; this function remains for backwards compatibility
+  return getEvents(filters);
 };
 
-// When ready to connect to real API, replace implementations like this:
-/*
-export const getEvents = async () => {
-  const response = await fetch('/api/events');
-  if (!response.ok) throw new Error('Failed to fetch events');
-  return response.json();
-};
+// Note: getEvents returns raw mock data in mock mode, or the Laravel
+// paginator response in real mode: { data: T[], meta, links? }.
 
-export const getEventBySlug = async (slug) => {
-  const response = await fetch(`/api/events/${slug}`);
-  if (!response.ok) throw new Error('Event not found');
-  return response.json();
-};
-*/

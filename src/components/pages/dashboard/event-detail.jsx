@@ -27,6 +27,7 @@ import {
   EnvelopeIcon,
 } from "@heroicons/react/24/solid";
 import { getEventBySlug } from "@/services/eventService";
+import EventRatingsModal from "@/components/ratings/EventRatingsModal";
 
 export function EventDetail({ params }) {
   // Unwrap the params Promise using React.use() for Next.js 16
@@ -35,6 +36,7 @@ export function EventDetail({ params }) {
   const [event, setEvent] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [activeTab, setActiveTab] = React.useState("details");
+  const [ratingsOpen, setRatingsOpen] = React.useState(false);
 
   React.useEffect(() => {
     // Load event from service
@@ -249,6 +251,16 @@ export function EventDetail({ params }) {
                   <XMarkIcon className="h-4 w-4" />
                   Cancel Event
                 </Button>
+                {event.status === "completed" && (
+                  <Button
+                    variant="outlined"
+                    color="blue"
+                    className="flex items-center gap-2"
+                    onClick={() => setRatingsOpen(true)}
+                  >
+                    Open Ratings
+                  </Button>
+                )}
                 <Link href="/dashboard/events">
                   <Button variant="text" color="blue-gray" className="flex items-center gap-2">
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -667,6 +679,11 @@ export function EventDetail({ params }) {
 
         </CardBody>
       </Card>
+      <EventRatingsModal
+        eventId={event.id}
+        open={ratingsOpen}
+        onClose={() => setRatingsOpen(false)}
+      />
     </>
   );
 }
