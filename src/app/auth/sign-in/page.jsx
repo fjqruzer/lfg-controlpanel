@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import { Input, Button, Typography } from "@material-tailwind/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loginPassword, verifyOtp } from "@/services/authService";
 
-export function SignIn() {
+function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") || "/dashboard/home";
@@ -195,6 +195,31 @@ export function SignIn() {
         />
       </div>
     </section>
+  );
+}
+
+export function SignIn() {
+  return (
+    <Suspense fallback={
+      <section className="m-8 flex gap-4">
+        <div className="w-full lg:w-3/5 mt-24">
+          <div className="text-center">
+            <Typography variant="h2" className="font-bold mb-4">
+              Sign In
+            </Typography>
+            <Typography
+              variant="paragraph"
+              color="blue-gray"
+              className="text-lg font-normal"
+            >
+              Loading...
+            </Typography>
+          </div>
+        </div>
+      </section>
+    }>
+      <SignInForm />
+    </Suspense>
   );
 }
 
