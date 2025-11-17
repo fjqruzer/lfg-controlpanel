@@ -3,6 +3,12 @@ import { getAuthToken, logout } from "@/services/authService";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+if (typeof window !== "undefined" && !API_URL) {
+  console.error(
+    "⚠️ NEXT_PUBLIC_API_URL is not defined. Please set it in your .env.local file or Vercel environment variables."
+  );
+}
+
 async function parse(res) {
   if (!res.ok) {
     let data = null;

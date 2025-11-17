@@ -1,6 +1,12 @@
 // src/services/authService.js
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+if (!API_URL && typeof window !== "undefined") {
+  console.error(
+    "NEXT_PUBLIC_API_URL is not defined. Please set it in your .env.local file or Vercel environment variables."
+  );
+}
+
 export const loginPassword = async (email, password) => {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
