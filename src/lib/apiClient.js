@@ -36,11 +36,16 @@ async function parse(res) {
 export const apiClient = {
   get(endpoint, params = {}) {
     const token = getAuthToken();
-    const qs = new URLSearchParams(params).toString();
+    // Filter out undefined/null values before creating query string
+    const filteredParams = Object.fromEntries(
+      Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    );
+    const qs = new URLSearchParams(filteredParams).toString();
     const url = `${API_URL}${endpoint}${qs ? `?${qs}` : ""}`;
 
     return fetch(url, {
       headers: {
+        "Accept": "application/json",
         ...(token && { Authorization: `Bearer ${token}` }),
       },
     }).then(parse);
@@ -52,6 +57,7 @@ export const apiClient = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
         ...(token && { Authorization: `Bearer ${token}` }),
       },
       body: JSON.stringify(body),
@@ -64,6 +70,7 @@ export const apiClient = {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
         ...(token && { Authorization: `Bearer ${token}` }),
       },
       body: JSON.stringify(body),
@@ -75,6 +82,7 @@ export const apiClient = {
     return fetch(`${API_URL}${endpoint}`, {
       method: "DELETE",
       headers: {
+        "Accept": "application/json",
         ...(token && { Authorization: `Bearer ${token}` }),
       },
     }).then(parse);

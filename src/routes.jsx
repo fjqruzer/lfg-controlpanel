@@ -5,6 +5,8 @@ import {
   RectangleStackIcon,
   MapPinIcon,
   CalendarDaysIcon,
+  DocumentTextIcon,
+  TicketIcon,
 } from "@heroicons/react/24/solid";
 
 const icon = {
@@ -46,6 +48,28 @@ export const routes = [
         icon: <UserCircleIcon {...icon} />,
         name: "users",
         path: "/users",
+      },
+      {
+        icon: <DocumentTextIcon {...icon} />,
+        name: "documents",
+        path: "/documents",
+      },
+      {
+        icon: <DocumentTextIcon {...icon} />,
+        name: "document details",
+        path: "/documents/:id",
+        isHidden: true,
+      },
+      {
+        icon: <TicketIcon {...icon} />,
+        name: "tickets",
+        path: "/tickets",
+      },
+      {
+        icon: <TicketIcon {...icon} />,
+        name: "ticket details",
+        path: "/tickets/:id",
+        isHidden: true,
       },
       {
         icon: <UserCircleIcon {...icon} />,

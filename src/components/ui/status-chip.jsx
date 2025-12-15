@@ -20,6 +20,24 @@ export function StatusChip({ status, type = "status" }) {
       }
     }
     
+    if (type === "document") {
+      switch (status) {
+        case "pending": return "amber";
+        case "verified": return "green";
+        case "rejected": return "red";
+        default: return "blue-gray";
+      }
+    }
+    
+    if (type === "ticket") {
+      switch (status) {
+        case "open": return "blue";
+        case "in_progress": return "amber";
+        case "closed": return "green";
+        default: return "blue-gray";
+      }
+    }
+    
     // Default status type
     return status === "Active" ? "green" : "blue-gray";
   };

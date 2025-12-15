@@ -1,316 +1,345 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Card,
   CardBody,
   CardHeader,
-  CardFooter,
   Avatar,
   Typography,
-  Tabs,
-  TabsHeader,
-  Tab,
   Button,
   IconButton,
   Input,
-  Textarea,
-  Select,
-  Option,
-  Switch,
   Chip,
+  Checkbox,
   Dialog,
   DialogHeader,
   DialogBody,
   DialogFooter,
-  Tooltip,
-  StatusChip,
-  VenueCard,
+  Select,
+  Option,
+  Menu,
+  MenuHandler,
+  MenuList,
+  MenuItem,
+  Textarea,
 } from "@/components/ui";
-import { HomeIcon, PlusIcon, MapPinIcon, TableCellsIcon, ListBulletIcon, XMarkIcon, InformationCircleIcon } from "@heroicons/react/24/solid";
+import { 
+  MapPinIcon, 
+  TableCellsIcon, 
+  ListBulletIcon, 
+  XMarkIcon,
+  MagnifyingGlassIcon,
+  FunnelIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  EllipsisVerticalIcon,
+  EyeIcon,
+  ArrowDownTrayIcon,
+  ChevronUpDownIcon,
+} from "@heroicons/react/24/solid";
 import Link from "next/link";
 import { useNotifications } from "@/context/notifications";
-import { getVenues, createVenue } from "@/services/venueService";
+import {
+  getAdminVenues,
+  getAdminVenue,
+  updateAdminVenue,
+  approveAdminVenue,
+  rejectAdminVenue,
+} from "@/services/adminVenueService";
+import { exportVenues } from "@/services/adminExportService";
+import { getVenuePhotoUrl } from "@/lib/imageUrl";
+
+const statuses = ["All", "active", "closed"];
 
 export function Venues() {
   const { notify } = useNotifications();
-  const [venues, setVenues] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [activeTab, setActiveTab] = React.useState("overview");
-  const [form, setForm] = React.useState({
-    name: "",
-    address: "",
-    region: "",
-    playerCapacity: "",
-    spectatorCapacity: "",
-    notes: "",
-    contactName: "",
-    contactPhone: "",
-    contactEmail: "",
-    openHours: "",
-    sportType: "",
-    surface: "",
-    mapUrl: "",
-  });
-  const [enabled, setEnabled] = React.useState(true);
-  const [imagePreviews, setImagePreviews] = React.useState([]);
-  const [dragIndex, setDragIndex] = React.useState(null);
-  const [legalDocs, setLegalDocs] = React.useState([]); // {name, size, type}
-  const [errors, setErrors] = React.useState({});
-  const [viewMode, setViewMode] = React.useState("grid"); // 'grid' | 'list'
-  const amenitiesOptions = [
-    "Parking",
-    "Restrooms",
-    "Locker Rooms",
-    "Showers",
-    "Water Station",
-    "First Aid",
-    "Lighting",
-    "Scoreboard",
-    "Seating/Bleachers",
-    "Accessibility",
-  ];
-  const [amenities, setAmenities] = React.useState([]);
-  const [indoor, setIndoor] = React.useState(false);
-  const [covered, setCovered] = React.useState(false);
-  const [editOpen, setEditOpen] = React.useState(false);
-  const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const [current, setCurrent] = React.useState(null);
-  const [customAmenityOpen, setCustomAmenityOpen] = React.useState(false);
-  const [customAmenity, setCustomAmenity] = React.useState("");
+  const [venues, setVenues] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [page, setPage] = useState(1);
+  const perPage = 20;
+  const [viewMode, setViewMode] = useState("list");
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedVenues, setSelectedVenues] = useState([]);
+  const [sortBy, setSortBy] = useState("id");
+  const [sortOrder, setSortOrder] = useState("desc");
 
-  // Load venues from service
-  React.useEffect(() => {
+  // Dialog states
+  const [editOpen, setEditOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [current, setCurrent] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Load venues from admin service
     const loadVenues = async () => {
       try {
         setLoading(true);
-        const data = await getVenues();
-        setVenues(data);
-      } catch (error) {
-        console.error('Failed to load venues:', error);
+      setError("");
+      const params = {
+        q: query || undefined,
+        status: statusFilter !== "All" ? statusFilter : undefined,
+        page,
+        per_page: perPage,
+      };
+      const res = await getAdminVenues(params);
+      // Laravel paginate() returns { current_page, data, from, last_page, ... total }
+      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
+      setVenues(list);
+      // Set pagination from Laravel's paginate response
+      setPagination({
+        current_page: res.current_page,
+        last_page: res.last_page,
+        per_page: res.per_page,
+        total: res.total,
+        from: res.from,
+        to: res.to,
+      });
+    } catch (err) {
+      console.error('Failed to load venues:', err);
+      setError(err.message || 'Failed to load venues');
         notify('Failed to load venues', { color: 'red', icon: true });
       } finally {
         setLoading(false);
       }
     };
+
+  useEffect(() => {
     loadVenues();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, statusFilter]);
 
-  const onChange = (key) => (e) => setForm((f) => ({ ...f, [key]: e?.target ? e.target.value : e }));
-  const MAX_IMAGES = 8;
-  const MAX_SIZE_MB = 5;
-  const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-
-  // Legal documents constraints
-  const MAX_DOCS = 5;
-  const MAX_DOC_SIZE_MB = 10;
-  const DOC_TYPES = [
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ];
-
-  const processFiles = (files) => {
-    let valid = [];
-    for (const f of files) {
-      if (!ACCEPTED_TYPES.includes(f.type)) {
-        notify(`Unsupported file type: ${f.type || f.name}`, { color: "red", icon: true });
-        continue;
-      }
-      if (f.size > MAX_SIZE_MB * 1024 * 1024) {
-        notify(`${f.name} exceeds ${MAX_SIZE_MB}MB`, { color: "red", icon: true });
-        continue;
-      }
-      valid.push(f);
-    }
-    if (valid.length === 0) return;
-    const remain = MAX_IMAGES - imagePreviews.length;
-    if (remain <= 0) {
-      notify(`Maximum of ${MAX_IMAGES} images reached`, { color: "red", icon: true });
-      return;
-    }
-    const chosen = valid.slice(0, remain);
-    const urls = chosen.map((f) => URL.createObjectURL(f));
-    setImagePreviews((arr) => [...arr, ...urls]);
-    if (valid.length > remain) {
-      notify(`Only the first ${remain} image(s) were added (limit ${MAX_IMAGES})`, { color: "amber", icon: true });
-    }
-  };
-
-  const onImagesChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    processFiles(files);
-  };
-  const onDropUpload = (e) => {
+  const handleSearch = (e) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer?.files || []);
-    processFiles(files);
+    setPage(1);
+    loadVenues();
   };
-  const removeImage = (idx) => {
-    setImagePreviews((arr) => {
-      try { if (arr[idx]) URL.revokeObjectURL(arr[idx]); } catch {}
-      return arr.filter((_, i) => i !== idx);
-    });
-  };
-  const onDragStartImage = (idx) => setDragIndex(idx);
-  const onDragOverImage = (e) => e.preventDefault();
-  const onDropImage = (idx) => {
-    if (dragIndex === null || dragIndex === idx) return;
-    setImagePreviews((arr) => {
-      const copy = [...arr];
-      const [moved] = copy.splice(dragIndex, 1);
-      copy.splice(idx, 0, moved);
-      return copy;
-    });
-    setDragIndex(null);
-  };
-  const validate = () => {
-    const errs = {};
-    if (!form.name.trim()) errs.name = "Venue name is required";
-    if (!form.address.trim()) errs.address = "Address is required";
-    if (!form.region) errs.region = "Region is required";
-    if (form.playerCapacity === "" || Number(form.playerCapacity) <= 0)
-      errs.playerCapacity = "Player capacity must be greater than 0";
-    if (form.sportType.trim() === "") errs.sportType = "Sport type is required";
-    if (
-      form.name &&
-      venues.some((v) => v.name.trim().toLowerCase() === form.name.trim().toLowerCase())
-    ) {
-      errs.name = errs.name || "Venue name already exists";
+
+  const handleSelectAll = () => {
+    if (selectedVenues.length === venues.length) {
+      setSelectedVenues([]);
+    } else {
+      setSelectedVenues(venues.map(v => v.id));
     }
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
   };
-  const slugify = (text) =>
-    text
-      .toString()
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "");
-  const uniqueSlug = (base, existing) => {
-    let s = slugify(base);
-    if (!existing.has(s)) return s;
-    let i = 2;
-    while (existing.has(`${s}-${i}`)) i++;
-    return `${s}-${i}`;
-  };
-  const addVenue = async () => {
-    if (!validate()) {
-      notify("Please fix the errors and try again", { color: "red" });
-      return;
+
+  const handleSelectVenue = (venueId) => {
+    if (selectedVenues.includes(venueId)) {
+      setSelectedVenues(selectedVenues.filter(id => id !== venueId));
+    } else {
+      setSelectedVenues([...selectedVenues, venueId]);
     }
-    
+  };
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(column);
+      setSortOrder("asc");
+    }
+  };
+
+  const handleApproveClick = (venue) => {
+    setCurrent(venue);
+    setApproveOpen(true);
+  };
+
+  const handleRejectClick = (venue) => {
+    setCurrent(venue);
+    setRejectReason("");
+    setRejectOpen(true);
+  };
+
+  const handleApproveConfirm = async () => {
+    if (!current) return;
     try {
-      const existingSlugs = new Set(venues.map((v) => v.slug).filter(Boolean));
-      const slug = uniqueSlug(form.name, existingSlugs);
-      const venueData = {
-        slug,
-        name: form.name,
-        address: form.address,
-        region: form.region || "",
-        playerCapacity: Number(form.playerCapacity) || 0,
-        spectatorCapacity: form.spectatorCapacity ? Number(form.spectatorCapacity) : 0,
-        status: enabled ? "Active" : "Disabled",
-        img: imagePreviews[0] || "/img/home-decor-3.jpeg",
-        images: imagePreviews,
-        sportType: form.sportType,
-        surface: form.surface,
-        indoor,
-        covered,
-        amenities: [...amenities],
-        contact: {
-          name: form.contactName,
-          phone: form.contactPhone,
-          email: form.contactEmail,
-        },
-        openHours: form.openHours,
-        mapUrl: form.mapUrl,
-        legalDocs: legalDocs.map((d) => ({ name: d.name, size: d.size, type: d.type })),
-      };
-      
-      const newVenue = await createVenue(venueData);
-      setVenues((v) => [newVenue, ...v]);
-      
-      // Reset form
-      setForm({
-        name: "",
-        address: "",
-        region: "",
-        playerCapacity: "",
-        spectatorCapacity: "",
-        notes: "",
-        contactName: "",
-        contactPhone: "",
-        contactEmail: "",
-        openHours: "",
-        sportType: "",
-        surface: "",
-        mapUrl: "",
+      setActionLoading(true);
+      await approveAdminVenue(current.id);
+      notify('Venue approved successfully', { color: 'green' });
+      setApproveOpen(false);
+      setCurrent(null);
+      loadVenues();
+    } catch (err) {
+      notify(err.message || 'Failed to approve venue', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectConfirm = async () => {
+    if (!current) return;
+    try {
+      setActionLoading(true);
+      await rejectAdminVenue(current.id, rejectReason);
+      notify('Venue rejected', { color: 'green' });
+      setRejectOpen(false);
+      setCurrent(null);
+      setRejectReason("");
+      loadVenues();
+    } catch (err) {
+      notify(err.message || 'Failed to reject venue', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEditClick = async (venue) => {
+    try {
+      // Fetch full venue details
+      const fullVenue = await getAdminVenue(venue.id);
+      setCurrent(fullVenue);
+      setEditOpen(true);
+    } catch (err) {
+      notify(err.message || 'Failed to load venue details', { color: 'red' });
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!current) return;
+    try {
+      setActionLoading(true);
+      await updateAdminVenue(current.id, {
+        name: current.name,
+        address: current.address,
+        is_closed: current.is_closed,
       });
-      setEnabled(true);
-      setImagePreviews([]);
-      setLegalDocs([]);
-      setErrors({});
-      setAmenities([]);
-      setIndoor(false);
-      setCovered(false);
-      notify("Venue added successfully", { color: "green" });
-      setActiveTab("overview");
-    } catch (error) {
-      console.error('Failed to add venue:', error);
-      notify("Failed to add venue", { color: "red" });
+      notify('Venue updated successfully', { color: 'green' });
+      setEditOpen(false);
+      setCurrent(null);
+      loadVenues();
+    } catch (err) {
+      notify(err.message || 'Failed to update venue', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      await exportVenues();
+      notify('Export started', { color: 'green' });
+    } catch (err) {
+      notify(err.message || 'Export failed', { color: 'red' });
+    }
+  };
+
+  const getVerificationStatus = (venue) => {
+    if (venue.verified_at && venue.verification_expires_at) {
+      const expiresAt = new Date(venue.verification_expires_at);
+      if (expiresAt > new Date()) {
+        return 'verified';
+      }
+      return 'expired';
+    }
+    return 'pending';
+  };
+
+  const getVerificationColor = (status) => {
+    switch (status) {
+      case 'verified': return 'green';
+      case 'pending': return 'amber';
+      case 'expired': return 'red';
+      default: return 'gray';
     }
   };
 
   return (
     <>
-      <div className="relative mt-8 h-72 w-full overflow-hidden rounded-xl bg-[url('/img/lfg-black.png')] bg-cover\tbg-center">
+      <div className="relative mt-8 h-72 w-full overflow-hidden rounded-xl bg-[url('/img/lfg-black.png')] bg-cover bg-center">
         <div className="absolute inset-0 h-full w-full bg-gray-900/75" />
       </div>
+      
       <Card className="mx-3 -mt-16 mb-6 lg:mx-4 border border-blue-gray-100">
-        <CardBody className="p-4">
-          <div className="mb-10 flex items-center justify-between flex-wrap gap-6">
-            <div className="flex items-center gap-6">
-              <div className="grid h-14 w-14 place-items-center rounded-lg bg-white text-gray-900 border border-blue-gray-100">
-                <MapPinIcon className="h-7 w-7" />
+        <CardHeader variant="gradient" color="gray" className="mb-4 p-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="grid h-12 w-12 place-items-center rounded-lg bg-white/10">
+                <MapPinIcon className="h-6 w-6 text-white" />
               </div>
               <div>
-                <Typography variant="h5" color="blue-gray" className="mb-1">
-                  Manage Venues
+                <Typography variant="h6" color="white">
+                  Venue Management
                 </Typography>
-                <Typography variant="small" className="font-normal text-blue-gray-600">
-                  Create and organize playable locations for sessions
+                <Typography variant="small" className="text-white/80">
+                  Monitor and manage venue verification
                 </Typography>
               </div>
             </div>
-            <div className="w-96">
-              <Tabs value={activeTab}>
-                <TabsHeader>
-                  <Tab value="overview" onClick={() => setActiveTab("overview") }>
-                    <HomeIcon className="-mt-1 mr-2 inline-block h-5 w-5" />
-                    Overview
-                  </Tab>
-                  <Tab value="add" onClick={() => setActiveTab("add") }>
-                    <PlusIcon className="-mt-1 mr-2 inline-block h-5 w-5" />
-                    Add Venue
-                  </Tab>
-                </TabsHeader>
-              </Tabs>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <form onSubmit={handleSearch} className="w-full md:w-72">
+                <Input 
+                  label="Search venues" 
+                  value={query} 
+                  onChange={(e) => setQuery(e.target.value)}
+                  icon={<MagnifyingGlassIcon className="h-5 w-5" />}
+                />
+              </form>
+              <Button 
+                variant="text" 
+                color="white"
+                className="hidden md:flex"
+                onClick={() => setShowFilters(!showFilters)}
+              >
+                <FunnelIcon className="h-5 w-5 mr-2" />
+                Filters
+              </Button>
             </div>
           </div>
 
-          {activeTab === "overview" ? (
-            <div className="px-4 pb-4">
-              <div className="flex items-center justify-between w-full">
-                <div>
-                  <Typography variant="h6" color="blue-gray" className="mb-1">
-                    Venues
+          {/* Advanced Filters */}
+          {showFilters && (
+            <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select 
+                label="Status"
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e); setPage(1); }}
+              >
+                {statuses.map(status => (
+                  <Option key={status} value={status}>
+                    {status === "All" ? "All Statuses" : status.charAt(0).toUpperCase() + status.slice(1)}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          )}
+
+          {/* Bulk Actions */}
+          {selectedVenues.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-white/20 flex items-center justify-between">
+              <Typography variant="small" color="white">
+                {selectedVenues.length} venue(s) selected
+              </Typography>
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  variant="text" 
+                  color="white"
+                  className="normal-case"
+                  onClick={handleExport}
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardHeader>
+
+        <CardBody className="p-4">
+          {error && (
+            <Typography variant="small" className="text-red-500 mb-4 font-medium">
+              {error}
                   </Typography>
-                  <Typography variant="small" className="font-normal text-blue-gray-500">
-                    Browse and manage available venues
+          )}
+          
+          <div className="flex items-center justify-between mb-4">
+            <Typography variant="h6" color="blue-gray">
+              Venues ({venues.length})
                   </Typography>
-                </div>
                 {/* View Mode Toggle */}
                 <div className="flex bg-gray-100 rounded-lg p-1 relative">
                   <IconButton
@@ -333,7 +362,6 @@ export function Venues() {
                   >
                     <ListBulletIcon className="h-4 w-4" />
                   </IconButton>
-                  {/* Sliding background */}
                   <div 
                     className={`absolute top-1 h-8 w-8 bg-black rounded-md transition-all duration-300 ease-in-out ${
                       viewMode === 'grid' ? 'left-1' : 'left-9'
@@ -341,310 +369,263 @@ export function Venues() {
                   />
                 </div>
               </div>
-              {viewMode === 'grid' ? (
-                <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-                  {venues.map((v) => (
-                    <VenueCard key={v.id} venue={v} />
-                  ))}
+
+          {loading ? (
+            <div className="text-center py-8">
+              <Typography className="text-blue-gray-400">Loading venues...</Typography>
+            </div>
+          ) : viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+              {venues.map((v) => {
+                const verificationStatus = getVerificationStatus(v);
+                return (
+                  <Card key={v.id} className="border border-blue-gray-100">
+                    <CardBody className="p-4">
+                      <div className="flex items-center gap-4 mb-3">
+                        <Avatar 
+                          src={getVenuePhotoUrl(v)} 
+                          alt={v.name} 
+                          size="lg" 
+                          variant="rounded" 
+                        />
+                        <div className="flex-1 min-w-0">
+                          <Typography variant="h6" color="blue-gray" className="truncate">
+                            {v.name}
+                          </Typography>
+                          <Typography variant="small" className="text-blue-gray-500 truncate">
+                            {v.address}
+                          </Typography>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mb-3">
+                        <Chip 
+                          variant="filled" 
+                          color={getVerificationColor(verificationStatus)}
+                          value={verificationStatus} 
+                          className="py-0.5 px-2 text-[10px] font-medium capitalize" 
+                        />
+                        <Chip 
+                          variant="ghost" 
+                          color={v.is_closed ? 'red' : 'green'}
+                          value={v.is_closed ? 'Closed' : 'Active'} 
+                          className="py-0.5 px-2 text-[10px] font-medium" 
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-1">
+                        {verificationStatus === 'pending' && (
+                          <>
+                            <IconButton 
+                              variant="text" 
+                              size="sm" 
+                              color="green"
+                              onClick={() => handleApproveClick(v)}
+                            >
+                              <CheckCircleIcon className="h-5 w-5" />
+                            </IconButton>
+                            <IconButton 
+                              variant="text" 
+                              size="sm" 
+                              color="red"
+                              onClick={() => handleRejectClick(v)}
+                            >
+                              <XCircleIcon className="h-5 w-5" />
+                            </IconButton>
+                          </>
+                        )}
+                        <Link href={`/dashboard/venues/${v.id}`}>
+                          <IconButton variant="text" size="sm" color="blue">
+                            <EyeIcon className="h-5 w-5" />
+                          </IconButton>
+                        </Link>
+                      </div>
+                    </CardBody>
+                  </Card>
+                );
+              })}
                 </div>
               ) : (
-                <Card className="mt-6">
-                  <CardBody className="overflow-x-scroll px-0 pt-0 pb-2">
-                    <table className="w-full min-w-[960px] table-auto">
+            <div className="overflow-x-scroll">
+              <table className="w-full min-w-[1000px] table-auto">
                       <thead>
                         <tr>
-                          {["venue", "owner", "location", "facilities", "verification", "events hosted", "revenue", "rating", "actions"].map((h) => (
-                            <th key={h} className="border-b border-blue-gray-50 py-3 px-5 text-left">
-                              <Typography variant="small" className="text-xs font-bold uppercase text-blue-gray-400">{h}</Typography>
+                    <th className="border-b border-blue-gray-50 py-3 px-5 text-left">
+                      <Checkbox
+                        checked={selectedVenues.length === venues.length && venues.length > 0}
+                        onChange={handleSelectAll}
+                        color="gray"
+                      />
+                    </th>
+                    {[
+                      { key: "name", label: "venue" },
+                      { key: "address", label: "location" },
+                      { key: "status", label: "status" },
+                      { key: "verification", label: "verification" },
+                      { key: "created_at", label: "created" },
+                      { key: "actions", label: "" }
+                    ].map((col) => (
+                      <th key={col.key} className="border-b border-blue-gray-50 py-3 px-5 text-left">
+                        <button
+                          onClick={() => col.key !== "actions" && handleSort(col.key)}
+                          className="flex items-center gap-1 font-semibold text-blue-gray-400 hover:text-blue-gray-600"
+                        >
+                          <Typography variant="small" className="text-[11px] font-bold uppercase">
+                            {col.label}
+                          </Typography>
+                          {col.key !== "actions" && (
+                            <ChevronUpDownIcon className="h-4 w-4" />
+                          )}
+                        </button>
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {venues.map((v, key) => {
-                          const className = `py-3 px-5 ${key === venues.length - 1 ? '' : 'border-b border-blue-gray-50'}`;
+                  {venues.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-6 px-5 text-center text-blue-gray-400">
+                        No venues found.
+                      </td>
+                    </tr>
+                  ) : (
+                    venues.map((v, idx) => {
+                      const verificationStatus = getVerificationStatus(v);
+                      const className = `py-3 px-5 ${idx !== venues.length - 1 ? 'border-b border-blue-gray-50' : ''}`;
                           return (
                             <tr key={v.id}>
+                          <td className={className}>
+                            <Checkbox
+                              checked={selectedVenues.includes(v.id)}
+                              onChange={() => handleSelectVenue(v.id)}
+                              color="gray"
+                            />
+                          </td>
                               <td className={className}>
                                 <div className="flex items-center gap-4">
-                                  <Avatar src={v.img} alt={v.name} size="sm" variant="rounded" />
+                              <Avatar 
+                                src={getVenuePhotoUrl(v)} 
+                                alt={v.name} 
+                                size="sm" 
+                                variant="rounded" 
+                              />
                                   <div>
-                                    <Typography variant="small" color="blue-gray" className="font-semibold">{v.name}</Typography>
-                                    <Typography className="text-xs text-blue-gray-500">{v.sportType} • {v.surface}</Typography>
+                                <Typography variant="small" color="blue-gray" className="font-semibold">
+                                  {v.name}
+                                </Typography>
+                                <Typography className="text-xs text-blue-gray-500">
+                                  ID: {v.id}
+                                </Typography>
                                   </div>
                                 </div>
                               </td>
                               <td className={className}>
                                 <div>
-                                  <Typography className="text-xs font-semibold text-blue-gray-600">{v.owner?.fullName || '—'}</Typography>
-                                  <Typography className="text-xs text-blue-gray-500">@{v.owner?.username || '—'}</Typography>
+                              <Typography className="text-xs font-semibold text-blue-gray-600">
+                                {v.address || '—'}
+                              </Typography>
+                              <Typography className="text-xs text-blue-gray-500">
+                                {v.city || ''}{v.city && v.province ? ', ' : ''}{v.province || ''}
+                              </Typography>
                                 </div>
                               </td>
                               <td className={className}>
-                                <div>
-                                  <Typography className="text-xs font-semibold text-blue-gray-600">{v.city}, {v.province}</Typography>
-                                  <Typography className="text-xs text-blue-gray-500">{v.region}</Typography>
-                                </div>
-                              </td>
-                              <td className={className}>
-                                <Typography className="text-xs font-semibold text-blue-gray-600">{v.facilities?.length || 0} facilities</Typography>
+                            <Chip 
+                              variant="ghost" 
+                              color={v.is_closed ? 'red' : 'green'}
+                              value={v.is_closed ? 'Closed' : 'Active'} 
+                              className="py-0.5 px-2 text-[10px] font-medium w-fit" 
+                            />
                               </td>
                               <td className={className}>
                                 <Chip 
                                   variant="filled" 
-                                  color={
-                                    v.verification?.status === 'verified' ? 'green' : 
-                                    v.verification?.status === 'pending' ? 'amber' : 
-                                    v.verification?.status === 'expired' ? 'red' : 'gray'
-                                  } 
-                                  value={v.verification?.status || 'unverified'} 
+                              color={getVerificationColor(verificationStatus)}
+                              value={verificationStatus} 
                                   className="py-0.5 px-2 text-[10px] font-medium w-fit capitalize" 
                                 />
                               </td>
                               <td className={className}>
-                                <Typography className="text-xs font-semibold text-blue-gray-600">{v.eventsHosted?.total || 0}</Typography>
-                                <Typography className="text-xs text-blue-gray-500">{v.eventsHosted?.thisMonth || 0} this month</Typography>
-                              </td>
-                              <td className={className}>
-                                <Typography className="text-xs font-semibold text-blue-gray-600">₱{(v.revenue?.total || 0).toLocaleString()}</Typography>
-                                <Typography className="text-xs text-blue-gray-500">₱{(v.revenue?.thisMonth || 0).toLocaleString()} this month</Typography>
+                            <Typography className="text-xs font-normal text-blue-gray-600">
+                              {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
+                            </Typography>
                               </td>
                               <td className={className}>
                                 <div className="flex items-center gap-1">
-                                  <Typography className="text-xs font-semibold text-blue-gray-600">{v.reviews?.averageRating || 0}</Typography>
-                                  <Typography className="text-xs text-blue-gray-500">({v.reviews?.totalReviews || 0})</Typography>
-                                </div>
-                              </td>
-                              <td className={className}>
-                                <div className="flex items-center gap-1">
-                                  <Link href={`/dashboard/venues/${v.slug || ''}`}>
-                                    <IconButton variant="text" size="sm" color="blue">
-                                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                      </svg>
+                              {verificationStatus === 'pending' && (
+                                <>
+                                  <IconButton 
+                                    variant="text" 
+                                    size="sm" 
+                                    color="green"
+                                    onClick={() => handleApproveClick(v)}
+                                    title="Approve venue"
+                                  >
+                                    <CheckCircleIcon className="h-5 w-5" />
+                                  </IconButton>
+                                  <IconButton 
+                                    variant="text" 
+                                    size="sm" 
+                                    color="red"
+                                    onClick={() => handleRejectClick(v)}
+                                    title="Reject venue"
+                                  >
+                                    <XCircleIcon className="h-5 w-5" />
+                                  </IconButton>
+                                </>
+                              )}
+                              <Menu placement="left-start">
+                                <MenuHandler>
+                                  <IconButton variant="text" size="sm" color="blue-gray">
+                                    <EllipsisVerticalIcon className="h-5 w-5" />
                                     </IconButton>
+                                </MenuHandler>
+                                <MenuList>
+                                  <Link href={`/dashboard/venues/${v.id}`}>
+                                    <MenuItem>
+                                      <EyeIcon className="h-4 w-4 mr-2 inline" />
+                                      View Details
+                                    </MenuItem>
                                   </Link>
-                                  <IconButton variant="text" size="sm" color="green">
-                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <MenuItem onClick={() => handleEditClick(v)}>
+                                    <svg className="h-4 w-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                     </svg>
-                                  </IconButton>
-                                  <IconButton variant="text" size="sm" color="red">
-                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                  </IconButton>
+                                    Edit Venue
+                                  </MenuItem>
+                                </MenuList>
+                              </Menu>
                                 </div>
                               </td>
                             </tr>
                           );
-                        })}
+                    })
+                  )}
                       </tbody>
                     </table>
-                  </CardBody>
-                </Card>
-              )}
             </div>
-          ) : (
-            <div className="px-4 pb-4">
-              <Typography variant="h6" color="blue-gray" className="mb-3">
-                Add Venue
+          )}
+
+          {/* Pagination */}
+          {pagination && (
+            <div className="flex items-center justify-between mt-4">
+              <Typography variant="small" className="text-blue-gray-600">
+                Page {pagination.current_page || page} of {pagination.last_page || 1} • Total {pagination.total || venues.length} venues
               </Typography>
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 max-w-4xl">
-                <div className="flex flex-col gap-4">
-                  <Input label="Venue name" value={form.name} onChange={onChange("name")} crossOrigin={undefined} />
-                  {errors.name && (
-                    <Typography variant="small" className="-mt-3 text-red-600">{errors.name}</Typography>
-                  )}
-                  <Input label="Address" value={form.address} onChange={onChange("address")} crossOrigin={undefined} icon={<MapPinIcon className="h-5 w-5 text-blue-gray-400" />} />
-                  {errors.address && (
-                    <Typography variant="small" className="-mt-3 text-red-600">{errors.address}</Typography>
-                  )}
-                  <Select label="Region" value={form.region} onChange={(val) => setForm((f) => ({ ...f, region: val || "" }))}>
-                  <Option value="NCR">NCR</Option>
-                  <Option value="Region I">Region I</Option>
-                  <Option value="Region III">Region III</Option>
-                  <Option value="Region VII">Region VII</Option>
-                </Select>
-                  {errors.region && (
-                    <Typography variant="small" className="-mt-2 text-red-600">{errors.region}</Typography>
-                  )}
-                  <Input type="number" label="Capacity" value={form.capacity} onChange={onChange("capacity")} crossOrigin={undefined} />
-                  {errors.capacity && (
-                    <Typography variant="small" className="-mt-3 text-red-600">{errors.capacity}</Typography>
-                  )}
-                  <Textarea label="Notes" value={form.notes} onChange={onChange("notes")} />
-
-                  <div>
-                    <Typography variant="small" color="blue-gray" className="mb-2 font-medium">Amenities</Typography>
-                    <div className="flex flex-wrap gap-2">
-                      {amenitiesOptions.map((opt) => {
-                        const active = amenities.includes(opt);
-                        return (
-                          <Chip
-                            key={opt}
-                            value={opt}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outlined"
                             size="sm"
-                            color="gray"
-                            variant={active ? "filled" : "outlined"}
-                            className={`cursor-pointer rounded-full w-[100px] h-[24px] text-center flex items-center justify-center ${
-                              active ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 border-gray-300'
-                            }`}
-                            onClick={() =>
-                              setAmenities((arr) =>
-                                arr.includes(opt) ? arr.filter((x) => x !== opt) : [...arr, opt]
-                              )
-                            }
-                          />
-                        );
-                      })}
-                      {amenities.filter(a => !amenitiesOptions.includes(a)).map((opt) => (
-                        <Chip
-                          key={opt}
-                          value={opt}
-                          size="sm"
-                          color="gray"
-                          variant="filled"
-                          className="cursor-pointer rounded-full w-[100px] h-[24px] text-center flex items-center justify-center bg-gray-800 text-white"
-                          onClick={() => setAmenities((arr) => arr.filter((x) => x !== opt))}
-                        />
-                      ))}
-                      <button
-                        onClick={() => setCustomAmenityOpen(true)}
-                        className="inline-flex items-center justify-center gap-1 text-[10px] font-medium rounded-full border-2 border-dashed border-gray-400 text-gray-600 hover:border-gray-900 hover:text-gray-900 transition-colors cursor-pointer w-[100px] h-[24px]"
-                      >
-                        <PlusIcon className="h-3 w-3" />
-                        Add Custom
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="flex items-center justify-between rounded-lg border border-blue-gray-100 p-4">
-                      <div>
-                        <Typography variant="small" color="blue-gray" className="font-medium">Venue Status</Typography>
-                        <Typography variant="small" className="text-blue-gray-500">{enabled ? "Enabled" : "Disabled"}</Typography>
-                      </div>
-                      <Switch checked={enabled} onChange={() => setEnabled((v) => !v)} />
-                    </div>
-                    <div className="flex items-center justify-between rounded-lg border border-blue-gray-100 p-4">
-                      <div>
-                        <Typography variant="small" color="blue-gray" className="font-medium">Indoor</Typography>
-                        <Typography variant="small" className="text-blue-gray-500">{indoor ? "Yes" : "No"}</Typography>
-                      </div>
-                      <Switch checked={indoor} onChange={() => { setIndoor((v) => !v); if (!indoor) setCovered(false); }} />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-lg border border-blue-gray-100 p-4">
-                    <div>
-                      <Typography variant="small" color="blue-gray" className="font-medium">Covered</Typography>
-                      <Typography variant="small" className="text-blue-gray-500">{covered ? "Yes" : "No"}</Typography>
-                    </div>
-                    <Switch checked={covered} onChange={() => setCovered((v) => !v)} disabled={indoor} />
-                  </div>
-
-                </div>
-
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <Typography variant="small" color="blue-gray" className="font-medium">Images</Typography>
-                    <Typography variant="small" className="text-blue-gray-500">{imagePreviews.length} / {MAX_IMAGES}</Typography>
-                  </div>
-                  <label
-                    className="flex h-48 w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-blue-gray-100 bg-gray-50 hover:bg-gray-100"
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                    onDrop={onDropUpload}
-                  >
-                    <input type="file" accept={ACCEPTED_TYPES.join(',')} multiple className="hidden" onChange={onImagesChange} />
-                    <span className="text-blue-gray-400">Click or drag & drop images (max {MAX_IMAGES})</span>
-                  </label>
-                  {imagePreviews.length > 0 && (
-                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
-                      {imagePreviews.map((src, i) => (
-                        <div
-                          key={i}
-                          className="relative overflow-hidden rounded-lg border border-blue-gray-100"
-                          draggable
-                          onDragStart={() => onDragStartImage(i)}
-                          onDragOver={onDragOverImage}
-                          onDrop={() => onDropImage(i)}
-                          title="Drag to reorder"
-                        >
-                          <img src={src} alt={`preview-${i}`} className="h-32 w-full object-cover select-none" />
-                          <IconButton
-                            variant="text"
-                            color="red"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Prev
+                </Button>
+                <Button
+                  variant="outlined"
                             size="sm"
-                            className="!absolute right-1 top-1 bg-white/80"
-                            onClick={() => removeImage(i)}
-                          >
-                            <XMarkIcon className="h-4 w-4" />
-                          </IconButton>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-0">
-                  <div className="mb-2 flex items-center justify-between">
-                    <Typography variant="small" color="blue-gray" className="font-medium">Legal Documents</Typography>
-                    <Typography variant="small" className="text-blue-gray-500">{legalDocs.length} / {MAX_DOCS}</Typography>
-                  </div>
-                  <label
-                    className="flex h-28 w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-blue-gray-100 bg-gray-50 hover:bg-gray-100"
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const files = Array.from(e.dataTransfer?.files || []);
-                      const remain = MAX_DOCS - legalDocs.length;
-                      if (remain <= 0) return notify(`Maximum of ${MAX_DOCS} documents reached`, { color: 'red', icon: true });
-                      const valid = files.filter((f) => DOC_TYPES.includes(f.type) && f.size <= MAX_DOC_SIZE_MB * 1024 * 1024);
-                      if (valid.length < files.length) notify('Some documents were invalid (type/size)', { color: 'amber', icon: true });
-                      const chosen = valid.slice(0, remain);
-                      setLegalDocs((arr) => [...arr, ...chosen.map((f) => ({ name: f.name, size: f.size, type: f.type }))]);
-                    }}
-                  >
-                    <input
-                      type="file"
-                      accept={DOC_TYPES.join(',')}
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        const remain = MAX_DOCS - legalDocs.length;
-                        if (remain <= 0) return notify(`Maximum of ${MAX_DOCS} documents reached`, { color: 'red', icon: true });
-                        const valid = files.filter((f) => DOC_TYPES.includes(f.type) && f.size <= MAX_DOC_SIZE_MB * 1024 * 1024);
-                        if (valid.length < files.length) notify('Some documents were invalid (type/size)', { color: 'amber', icon: true });
-                        const chosen = valid.slice(0, remain);
-                        setLegalDocs((arr) => [...arr, ...chosen.map((f) => ({ name: f.name, size: f.size, type: f.type }))]);
-                      }}
-                    />
-                    <span className="text-blue-gray-400">Upload PDF/DOC/DOCX (max {MAX_DOCS}, {MAX_DOC_SIZE_MB}MB each)</span>
-                  </label>
-                  {legalDocs.length > 0 && (
-                    <div className="mt-3 divide-y divide-blue-gray-50 rounded-lg border border-blue-gray-100">
-                      {legalDocs.map((d, i) => (
-                        <div key={`${d.name}-${i}`} className="flex items-center justify-between gap-3 p-3">
-                          <div className="min-w-0">
-                            <Typography variant="small" color="blue-gray" className="font-medium truncate max-w-[260px]">{d.name}</Typography>
-                            <Typography variant="small" className="text-blue-gray-500">{(d.size / 1024 / 1024).toFixed(2)} MB</Typography>
-                          </div>
-                          <IconButton variant="text" color="red" size="sm" onClick={() => setLegalDocs((arr) => arr.filter((_, idx) => idx !== i))}>
-                            <XMarkIcon className="h-4 w-4" />
-                          </IconButton>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="mt-6">
-                <Button color="black" className="flex items-center gap-2 normal-case w-fit" onClick={addVenue}>
-                  <PlusIcon className="h-5 w-5" />
-                  Add Venue
+                  disabled={pagination && page >= pagination.last_page}
+                  onClick={() => setPage((p) => pagination ? Math.min(pagination.last_page, p + 1) : p + 1)}
+                >
+                  Next
                 </Button>
               </div>
             </div>
@@ -658,90 +639,77 @@ export function Venues() {
         <DialogBody divider>
           {current && (
             <div className="flex flex-col gap-4">
-              <Input label="Venue name" defaultValue={current.name} onChange={(e) => setCurrent((c) => ({ ...c, name: e.target.value }))} crossOrigin={undefined} />
-              <Input label="Address" defaultValue={current.address} onChange={(e) => setCurrent((c) => ({ ...c, address: e.target.value }))} crossOrigin={undefined} />
+              <Input 
+                label="Venue name" 
+                value={current.name || ''} 
+                onChange={(e) => setCurrent((c) => ({ ...c, name: e.target.value }))} 
+              />
+              <Input 
+                label="Address" 
+                value={current.address || ''} 
+                onChange={(e) => setCurrent((c) => ({ ...c, address: e.target.value }))} 
+              />
               <div className="flex items-center justify-between rounded-lg border border-blue-gray-100 p-3">
-                <Typography variant="small">Status</Typography>
-                <Switch checked={current.status === 'Active'} onChange={() => setCurrent((c) => ({ ...c, status: c.status === 'Active' ? 'Disabled' : 'Active' }))} />
+                <Typography variant="small">Closed</Typography>
+                <input 
+                  type="checkbox" 
+                  checked={current.is_closed || false} 
+                  onChange={() => setCurrent((c) => ({ ...c, is_closed: !c.is_closed }))} 
+                  className="h-4 w-4"
+                />
               </div>
             </div>
           )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="text" onClick={() => setEditOpen(false)} className="mr-1">Cancel</Button>
-          <Button variant="gradient" color="blue" onClick={() => {
-            if (!current) return;
-            setVenues((arr) => arr.map((x) => x.id === current.id ? { ...x, name: current.name, address: current.address, status: current.status } : x));
-            setEditOpen(false);
-            notify('Venue updated', { color: 'green' });
-          }}>Save</Button>
+          <Button variant="text" onClick={() => setEditOpen(false)} className="mr-1" disabled={actionLoading}>
+            Cancel
+          </Button>
+          <Button variant="gradient" color="blue" onClick={handleEditSave} disabled={actionLoading}>
+            {actionLoading ? 'Saving...' : 'Save'}
+          </Button>
         </DialogFooter>
       </Dialog>
 
-      {/* Delete Modal */}
-      <Dialog open={deleteOpen} handler={() => setDeleteOpen(false)} size="xs">
-        <DialogHeader>Delete Venue</DialogHeader>
+      {/* Approve Confirmation Dialog */}
+      <Dialog open={approveOpen} handler={() => setApproveOpen(false)} size="sm">
+        <DialogHeader>Approve Venue</DialogHeader>
         <DialogBody divider>
-          <Typography variant="small">Are you sure you want to delete this venue? This action cannot be undone.</Typography>
+          <Typography variant="paragraph" color="blue-gray">
+            Are you sure you want to approve <strong>{current?.name}</strong>? 
+            This will verify the venue for 1 year.
+          </Typography>
         </DialogBody>
         <DialogFooter>
-          <Button variant="text" onClick={() => setDeleteOpen(false)} className="mr-1">Cancel</Button>
-          <Button variant="gradient" color="red" onClick={() => {
-            if (!current) return;
-            setVenues((arr) => arr.filter((x) => x.id !== current.id));
-            setDeleteOpen(false);
-            notify('Venue deleted', { color: 'green' });
-          }}>Delete</Button>
+          <Button variant="text" onClick={() => setApproveOpen(false)} className="mr-1" disabled={actionLoading}>
+            Cancel
+          </Button>
+          <Button color="green" onClick={handleApproveConfirm} disabled={actionLoading}>
+            {actionLoading ? 'Approving...' : 'Approve'}
+          </Button>
         </DialogFooter>
       </Dialog>
 
-      {/* Custom Amenity Modal */}
-      <Dialog open={customAmenityOpen} handler={() => setCustomAmenityOpen(false)} size="xs">
-        <DialogHeader>Add Custom Amenity</DialogHeader>
+      {/* Reject Confirmation Dialog */}
+      <Dialog open={rejectOpen} handler={() => setRejectOpen(false)} size="sm">
+        <DialogHeader>Reject Venue</DialogHeader>
         <DialogBody divider>
-          <Input 
-            label="Amenity name" 
-            value={customAmenity}
-            onChange={(e) => setCustomAmenity(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && customAmenity.trim()) {
-                const trimmed = customAmenity.trim();
-                if (!amenities.includes(trimmed) && !amenitiesOptions.includes(trimmed)) {
-                  setAmenities((arr) => [...arr, trimmed]);
-                  setCustomAmenity("");
-                  setCustomAmenityOpen(false);
-                  notify('Custom amenity added', { color: 'green' });
-                } else {
-                  notify('Amenity already exists', { color: 'amber' });
-                }
-              }
-            }}
-            crossOrigin={undefined}
+          <Typography variant="paragraph" color="blue-gray" className="mb-4">
+            Are you sure you want to reject <strong>{current?.name}</strong>?
+          </Typography>
+          <Textarea
+            label="Rejection Reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
           />
         </DialogBody>
         <DialogFooter>
-          <Button variant="text" onClick={() => {
-            setCustomAmenity("");
-            setCustomAmenityOpen(false);
-          }} className="mr-1">Cancel</Button>
-          <Button 
-            variant="gradient" 
-            color="black" 
-            onClick={() => {
-              if (customAmenity.trim()) {
-                const trimmed = customAmenity.trim();
-                if (!amenities.includes(trimmed) && !amenitiesOptions.includes(trimmed)) {
-                  setAmenities((arr) => [...arr, trimmed]);
-                  setCustomAmenity("");
-                  setCustomAmenityOpen(false);
-                  notify('Custom amenity added', { color: 'green' });
-                } else {
-                  notify('Amenity already exists', { color: 'amber' });
-                }
-              }
-            }}
-          >
-            Add
+          <Button variant="text" onClick={() => setRejectOpen(false)} className="mr-1" disabled={actionLoading}>
+            Cancel
+          </Button>
+          <Button color="red" onClick={handleRejectConfirm} disabled={actionLoading}>
+            {actionLoading ? 'Rejecting...' : 'Reject'}
           </Button>
         </DialogFooter>
       </Dialog>

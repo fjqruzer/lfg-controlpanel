@@ -20,6 +20,7 @@ import {
   Select,
   Option,
   StatusChip,
+  Textarea,
 } from "@/components/ui";
 import { 
   UserPlusIcon, 
@@ -33,18 +34,26 @@ import {
   CheckCircleIcon,
   ChevronUpDownIcon,
   XMarkIcon,
+  EyeIcon,
 } from "@heroicons/react/24/solid";
 import {
   getAdminUsers,
   deleteAdminUser,
+  banAdminUser,
+  unbanAdminUser,
+  getAdminUserActivity,
 } from "@/services/adminUserService";
 import { exportUsers } from "@/services/adminExportService";
+import { useNotifications } from "@/context/notifications";
+import Link from "next/link";
+import { getUserAvatarUrl } from "@/lib/imageUrl";
 
 const roles = ["All", "Organizer", "Player", "Coach"];
-const sports = ["All", "Basketball", "Badminton", "Football", "Tennis", "Volleyball", "Swimming"];
 const statuses = ["All", "Active", "Inactive", "Banned"];
+const banTypes = ["temporary", "permanent"];
 
 export function Users() {
+  const { notify } = useNotifications();
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState([]);
   const [meta, setMeta] = useState(null);
@@ -54,13 +63,25 @@ export function Users() {
   const [error, setError] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [roleFilter, setRoleFilter] = useState("All");
-  const [sportFilter, setSportFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [sortBy, setSortBy] = useState("registrationDate");
+  const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Ban/Unban dialog state
   const [showBanDialog, setShowBanDialog] = useState(false);
   const [userToBan, setUserToBan] = useState(null);
+  const [banReason, setBanReason] = useState("");
+  const [banType, setBanType] = useState("temporary");
+  const [banDuration, setBanDuration] = useState("7"); // days
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Bulk action dialog state
+  const [showBulkBanDialog, setShowBulkBanDialog] = useState(false);
+  const [bulkAction, setBulkAction] = useState(null); // 'ban' or 'unban'
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkBanType, setBulkBanType] = useState("temporary");
+  const [bulkBanDuration, setBulkBanDuration] = useState("7");
 
   const loadUsers = async (opts = {}) => {
     try {
@@ -69,14 +90,23 @@ export function Users() {
       const params = {
         q: query || undefined,
         role: roleFilter !== "All" ? roleFilter : undefined,
+        status: statusFilter !== "All" ? statusFilter.toLowerCase() : undefined,
         page,
         per_page: perPage,
         ...opts,
       };
       const res = await getAdminUsers(params);
-      const list = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      // Laravel paginate() returns { current_page, data, from, last_page, ... total }
+      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
       setUsers(list);
-      setMeta(res.meta || null);
+      setMeta({
+        current_page: res.current_page,
+        last_page: res.last_page,
+        per_page: res.per_page,
+        total: res.total,
+        from: res.from,
+        to: res.to,
+      });
     } catch (err) {
       setError(err.message || "Failed to load users");
       setUsers([]);
@@ -89,7 +119,13 @@ export function Users() {
   useEffect(() => {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, statusFilter]);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setPage(1);
+    loadUsers();
+  };
 
   const filtered = users
     .filter((u) => {
@@ -100,22 +136,22 @@ export function Users() {
       const username = u.username || "";
       const email = u.email || "";
       const role = u.role?.name || u.role || "";
-      const mainSport = u.mainSport || "";
 
       const matchesSearch =
         fullName.toLowerCase().includes(query.toLowerCase()) ||
         email.toLowerCase().includes(query.toLowerCase()) ||
-        username.toLowerCase().includes(query.toLowerCase());
+        username.toLowerCase().includes(query.toLowerCase()) ||
+        (u.contact_number || "").toLowerCase().includes(query.toLowerCase()) ||
+        (u.city || "").toLowerCase().includes(query.toLowerCase());
       const matchesRole =
         roleFilter === "All" || role.toLowerCase() === roleFilter.toLowerCase();
-      const matchesSport =
-        sportFilter === "All" ||
-        mainSport.toLowerCase() === sportFilter.toLowerCase();
       const matchesStatus =
         statusFilter === "All" ||
-        (u.status || "").toLowerCase() === statusFilter.toLowerCase();
+        (u.status || "").toLowerCase() === statusFilter.toLowerCase() ||
+        (u.is_banned && statusFilter === "Banned") ||
+        (!u.is_banned && u.status !== "Inactive" && statusFilter === "Active");
 
-      return matchesSearch && matchesRole && matchesSport && matchesStatus;
+      return matchesSearch && matchesRole && matchesStatus;
     })
     .sort((a, b) => {
       const fieldMap = {
@@ -125,7 +161,9 @@ export function Users() {
           "",
         username: (user) => user.username || "",
         email: (user) => user.email || "",
-        mainSport: (user) => user.mainSport || "",
+        contact_number: (user) => user.contact_number || "",
+        city: (user) => user.city || "",
+        created_at: (user) => user.created_at || "",
         registrationDate: (user) => user.created_at || user.registrationDate,
       };
 
@@ -135,7 +173,7 @@ export function Users() {
       const aVal = getter(a) || "";
       const bVal = getter(b) || "";
 
-      if (sortBy === "registrationDate") {
+      if (sortBy === "registrationDate" || sortBy === "created_at") {
         const aDate = aVal ? new Date(aVal).getTime() : 0;
         const bDate = bVal ? new Date(bVal).getTime() : 0;
         return sortOrder === "asc" ? aDate - bDate : bDate - aDate;
@@ -171,32 +209,122 @@ export function Users() {
     }
   };
 
-  const handleBanUser = (user) => {
+  const handleBanClick = (user) => {
     setUserToBan(user);
+    setBanReason("");
+    setBanType("temporary");
+    setBanDuration("7");
     setShowBanDialog(true);
+  };
+
+  const handleBanConfirm = async () => {
+    if (!userToBan) return;
+    
+    const isBanned = userToBan.is_banned || userToBan.status === "Banned";
+    
+    try {
+      setActionLoading(true);
+      
+      if (isBanned) {
+        // Unban user
+        await unbanAdminUser(userToBan.id);
+        notify('User unbanned successfully', { color: 'green' });
+      } else {
+        // Ban user
+        const banData = {
+          reason: banReason,
+          ban_type: banType,
+        };
+        if (banType === 'temporary' && banDuration) {
+          banData.duration_days = parseInt(banDuration);
+        }
+        await banAdminUser(userToBan.id, banData);
+        notify('User banned successfully', { color: 'green' });
+      }
+      
+      setShowBanDialog(false);
+      setUserToBan(null);
+      setBanReason("");
+      loadUsers();
+    } catch (err) {
+      notify(err.message || `Failed to ${isBanned ? 'unban' : 'ban'} user`, { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleBulkBanClick = (action) => {
+    if (selectedUsers.length === 0) {
+      notify("Please select users to perform this action", { color: 'amber' });
+      return;
+    }
+    setBulkAction(action);
+    setBulkReason("");
+    setBulkBanType("temporary");
+    setBulkBanDuration("7");
+    setShowBulkBanDialog(true);
+  };
+
+  const handleBulkBanConfirm = async () => {
+    if (selectedUsers.length === 0) return;
+    
+    try {
+      setActionLoading(true);
+      
+      const results = { success: 0, failed: 0 };
+      
+      for (const userId of selectedUsers) {
+        try {
+          if (bulkAction === 'unban') {
+            await unbanAdminUser(userId);
+          } else {
+            const banData = {
+              reason: bulkReason,
+              ban_type: bulkBanType,
+            };
+            if (bulkBanType === 'temporary' && bulkBanDuration) {
+              banData.duration_days = parseInt(bulkBanDuration);
+            }
+            await banAdminUser(userId, banData);
+          }
+          results.success++;
+        } catch {
+          results.failed++;
+        }
+      }
+      
+      if (results.success > 0) {
+        notify(
+          `Successfully ${bulkAction === 'unban' ? 'unbanned' : 'banned'} ${results.success} user(s)${results.failed > 0 ? `, ${results.failed} failed` : ''}`, 
+          { color: results.failed > 0 ? 'amber' : 'green' }
+        );
+      } else {
+        notify(`Failed to ${bulkAction} users`, { color: 'red' });
+      }
+      
+      setShowBulkBanDialog(false);
+      setSelectedUsers([]);
+      loadUsers();
+    } catch (err) {
+      notify(err.message || `Failed to ${bulkAction} users`, { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleExport = async () => {
     try {
       await exportUsers();
+      notify('Export started', { color: 'green' });
     } catch (err) {
-      alert(err.message || "Export failed");
+      notify(err.message || "Export failed", { color: 'red' });
     }
   };
 
-  const handleBulkAction = (action) => {
-    if (selectedUsers.length === 0) {
-      alert("Please select users to perform this action");
-      return;
-    }
-    
-    if (action === "ban") {
-      alert(`Ban ${selectedUsers.length} user(s)?`);
-    } else if (action === "unban") {
-      alert(`Unban ${selectedUsers.length} user(s)?`);
-    }
-    
-    setSelectedUsers([]);
+  const getUserStatus = (user) => {
+    if (user.is_banned || user.status === "Banned") return "Banned";
+    if (user.status) return user.status;
+    return "Active";
   };
 
   return (
@@ -213,14 +341,14 @@ export function Users() {
               </Typography>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
-              <div className="w-full md:w-72">
+              <form onSubmit={handleSearch} className="w-full md:w-72">
                 <Input 
                   label="Search users" 
                   value={query} 
                   onChange={(e) => setQuery(e.target.value)}
-                  labelProps={{ className: '!text-white' }}
+                  icon={<MagnifyingGlassIcon className="h-5 w-5" />}
                 />
-              </div>
+              </form>
               <Button 
                 variant="text" 
                 color="white"
@@ -229,14 +357,6 @@ export function Users() {
               >
                 <FunnelIcon className="h-5 w-5 mr-2" />
                 Filters
-              </Button>
-              <Button 
-                variant="filled" 
-                color="white"
-                className="normal-case text-blue-gray-900 flex items-center gap-2 whitespace-nowrap bg-white hover:bg-white/90 h-10"
-              >
-                <UserPlusIcon className="h-5 w-5" />
-                Add User
               </Button>
             </div>
           </div>
@@ -247,7 +367,7 @@ export function Users() {
               <Select 
                 label="Role"
                 value={roleFilter}
-                onChange={(e) => setRoleFilter(e)}
+                onChange={(e) => { setRoleFilter(e); setPage(1); }}
               >
                 {roles.map(role => (
                   <Option key={role} value={role}>{role}</Option>
@@ -255,19 +375,9 @@ export function Users() {
               </Select>
               
               <Select 
-                label="Sport"
-                value={sportFilter}
-                onChange={(e) => setSportFilter(e)}
-              >
-                {sports.map(sport => (
-                  <Option key={sport} value={sport}>{sport}</Option>
-                ))}
-              </Select>
-              
-              <Select 
                 label="Status"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e)}
+                onChange={(e) => { setStatusFilter(e); setPage(1); }}
               >
                 {statuses.map(status => (
                   <Option key={status} value={status}>{status}</Option>
@@ -283,22 +393,22 @@ export function Users() {
                 {selectedUsers.length} user(s) selected
               </Typography>
               <div className="flex gap-2">
-              <Button 
-                size="sm" 
-                variant="text" 
-                color="white"
-                className="normal-case"
-                onClick={() => handleBulkAction("ban")}
-              >
-                <NoSymbolIcon className="h-4 w-4 mr-2" />
-                Ban Selected
-              </Button>
                 <Button 
                   size="sm" 
                   variant="text" 
                   color="white"
                   className="normal-case"
-                  onClick={() => handleBulkAction("unban")}
+                  onClick={() => handleBulkBanClick("ban")}
+                >
+                  <NoSymbolIcon className="h-4 w-4 mr-2" />
+                  Ban Selected
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="text" 
+                  color="white"
+                  className="normal-case"
+                  onClick={() => handleBulkBanClick("unban")}
                 >
                   <CheckCircleIcon className="h-4 w-4 mr-2" />
                   Unban Selected
@@ -312,6 +422,15 @@ export function Users() {
                 >
                   <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
                   Export CSV
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="text" 
+                  color="white"
+                  className="normal-case"
+                  onClick={() => setSelectedUsers([])}
+                >
+                  Clear Selection
                 </Button>
               </div>
             </div>
@@ -343,7 +462,8 @@ export function Users() {
                   { key: "fullName", label: "name" },
                   { key: "email", label: "email" },
                   { key: "role", label: "role" },
-                  { key: "mainSport", label: "main sport" },
+                  { key: "contact_number", label: "contact" },
+                  { key: "city", label: "location" },
                   { key: "status", label: "status" },
                   { key: "registrationDate", label: "joined" },
                   { key: "actions", label: "" }
@@ -385,8 +505,11 @@ export function Users() {
                 </tr>
               ) : (
                 filtered.map((u, idx) => {
+                  const userStatus = getUserStatus(u);
+                  const isBanned = userStatus === "Banned";
+                  
                   return (
-                    <tr key={u.id}>
+                    <tr key={u.id} className={isBanned ? "bg-red-50/50" : ""}>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Checkbox
                           checked={selectedUsers.includes(u.id)}
@@ -396,7 +519,7 @@ export function Users() {
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Avatar
-                          src={u.avatar}
+                          src={getUserAvatarUrl(u)}
                           alt={
                             [u.first_name, u.last_name].filter(Boolean).join(" ") ||
                             u.fullName ||
@@ -433,15 +556,27 @@ export function Users() {
                         />
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                        <Chip
-                          variant="gradient"
-                          color="purple"
-                          value={u.mainSport || "—"}
-                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
-                        />
+                        <Typography className="text-xs font-normal text-blue-gray-600">
+                          {u.contact_number || "—"}
+                        </Typography>
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                        <StatusChip status={u.status || "Active"} type="user" />
+                        <Typography className="text-xs font-normal text-blue-gray-600">
+                          {u.city || "—"}
+                        </Typography>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Chip
+                          variant="ghost"
+                          color={isBanned ? "red" : userStatus === "Active" ? "green" : "gray"}
+                          value={userStatus}
+                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
+                        />
+                        {isBanned && u.ban_reason && (
+                          <Typography className="text-xs text-red-500 mt-1 truncate max-w-[120px]" title={u.ban_reason}>
+                            {u.ban_reason}
+                          </Typography>
+                        )}
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Typography className="text-xs font-normal text-blue-gray-600">
@@ -451,21 +586,18 @@ export function Users() {
                         </Typography>
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           <IconButton 
                             variant="text" 
-                            color={u.status === "Banned" ? "green" : "red"}
-                            onClick={() => handleBanUser(u)}
-                            title={u.status === "Banned" ? "Unban user" : "Ban user"}
+                            color={isBanned ? "green" : "red"}
+                            onClick={() => handleBanClick(u)}
+                            title={isBanned ? "Unban user" : "Ban user"}
                           >
-                            {u.status === "Banned" ? (
+                            {isBanned ? (
                               <CheckCircleIcon className="h-5 w-5" />
                             ) : (
                               <NoSymbolIcon className="h-5 w-5" />
                             )}
-                          </IconButton>
-                          <IconButton variant="text" color="blue-gray">
-                            <PencilSquareIcon className="h-5 w-5" />
                           </IconButton>
                           <Menu placement="left-start">
                             <MenuHandler>
@@ -474,8 +606,27 @@ export function Users() {
                               </IconButton>
                             </MenuHandler>
                             <MenuList>
-                              <MenuItem onClick={() => window.open(`/dashboard/users/${u.id}`, '_blank')}>
-                                View Details
+                              <Link href={`/dashboard/users/${u.id}`}>
+                                <MenuItem className="flex items-center gap-2">
+                                  <EyeIcon className="h-4 w-4" />
+                                  View Details
+                                </MenuItem>
+                              </Link>
+                              <MenuItem 
+                                className={`flex items-center gap-2 ${isBanned ? 'text-green-600' : 'text-red-600'}`}
+                                onClick={() => handleBanClick(u)}
+                              >
+                                {isBanned ? (
+                                  <>
+                                    <CheckCircleIcon className="h-4 w-4" />
+                                    Unban User
+                                  </>
+                                ) : (
+                                  <>
+                                    <NoSymbolIcon className="h-4 w-4" />
+                                    Ban User
+                                  </>
+                                )}
                               </MenuItem>
                             </MenuList>
                           </Menu>
@@ -490,7 +641,7 @@ export function Users() {
         </CardBody>
       </Card>
 
-      {/* Ban/Unban Confirmation Dialog */}
+      {/* Single User Ban/Unban Dialog */}
       <Dialog 
         open={showBanDialog} 
         handler={() => setShowBanDialog(false)}
@@ -498,7 +649,7 @@ export function Users() {
       >
         <div className="flex items-center justify-between p-4 border-b">
           <Typography variant="h5" color="blue-gray">
-            {userToBan?.status === "Banned" ? "Unban User" : "Ban User"}
+            {(userToBan?.is_banned || userToBan?.status === "Banned") ? "Unban User" : "Ban User"}
           </Typography>
           <IconButton
             variant="text"
@@ -508,32 +659,155 @@ export function Users() {
             <XMarkIcon className="h-5 w-5" />
           </IconButton>
         </div>
-        <DialogBody>
+        <DialogBody className="space-y-4">
           <Typography variant="paragraph" color="blue-gray">
-            Are you sure you want to {userToBan?.status === "Banned" ? "unban" : "ban"} <strong>{userToBan?.fullName}</strong>?
+            {(userToBan?.is_banned || userToBan?.status === "Banned") ? (
+              <>Are you sure you want to unban <strong>{userToBan?.fullName || userToBan?.username || `User #${userToBan?.id}`}</strong>?</>
+            ) : (
+              <>Are you sure you want to ban <strong>{userToBan?.fullName || userToBan?.username || `User #${userToBan?.id}`}</strong>?</>
+            )}
           </Typography>
+          
+          {!(userToBan?.is_banned || userToBan?.status === "Banned") && (
+            <>
+              <Textarea
+                label="Reason for ban"
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value)}
+                rows={3}
+                placeholder="Explain why this user is being banned..."
+              />
+              
+              <Select
+                label="Ban Type"
+                value={banType}
+                onChange={(val) => setBanType(val)}
+              >
+                <Option value="temporary">Temporary</Option>
+                <Option value="permanent">Permanent</Option>
+              </Select>
+              
+              {banType === "temporary" && (
+                <Input
+                  type="number"
+                  label="Duration (days)"
+                  value={banDuration}
+                  onChange={(e) => setBanDuration(e.target.value)}
+                  min="1"
+                  max="365"
+                />
+              )}
+            </>
+          )}
         </DialogBody>
         <DialogFooter>
           <Button
             variant="text"
             color="blue-gray"
             onClick={() => setShowBanDialog(false)}
+            disabled={actionLoading}
           >
             Cancel
           </Button>
           <Button
-            color={userToBan?.status === "Banned" ? "green" : "red"}
-            onClick={() => {
-              alert(`${userToBan?.status === "Banned" ? "User unbanned" : "User banned"} successfully!`);
-              setShowBanDialog(false);
-              setUserToBan(null);
-            }}
+            color={(userToBan?.is_banned || userToBan?.status === "Banned") ? "green" : "red"}
+            onClick={handleBanConfirm}
+            disabled={actionLoading}
           >
-            {userToBan?.status === "Banned" ? "Unban User" : "Ban User"}
+            {actionLoading 
+              ? "Processing..." 
+              : (userToBan?.is_banned || userToBan?.status === "Banned") 
+                ? "Unban User" 
+                : "Ban User"
+            }
           </Button>
         </DialogFooter>
       </Dialog>
 
+      {/* Bulk Ban/Unban Dialog */}
+      <Dialog 
+        open={showBulkBanDialog} 
+        handler={() => setShowBulkBanDialog(false)}
+        size="sm"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <Typography variant="h5" color="blue-gray">
+            {bulkAction === "unban" ? "Unban Users" : "Ban Users"}
+          </Typography>
+          <IconButton
+            variant="text"
+            color="blue-gray"
+            onClick={() => setShowBulkBanDialog(false)}
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </IconButton>
+        </div>
+        <DialogBody className="space-y-4">
+          <Typography variant="paragraph" color="blue-gray">
+            {bulkAction === "unban" ? (
+              <>Are you sure you want to unban <strong>{selectedUsers.length} user(s)</strong>?</>
+            ) : (
+              <>Are you sure you want to ban <strong>{selectedUsers.length} user(s)</strong>?</>
+            )}
+          </Typography>
+          
+          {bulkAction === "ban" && (
+            <>
+              <Textarea
+                label="Reason for ban"
+                value={bulkReason}
+                onChange={(e) => setBulkReason(e.target.value)}
+                rows={3}
+                placeholder="Explain why these users are being banned..."
+              />
+              
+              <Select
+                label="Ban Type"
+                value={bulkBanType}
+                onChange={(val) => setBulkBanType(val)}
+              >
+                <Option value="temporary">Temporary</Option>
+                <Option value="permanent">Permanent</Option>
+              </Select>
+              
+              {bulkBanType === "temporary" && (
+                <Input
+                  type="number"
+                  label="Duration (days)"
+                  value={bulkBanDuration}
+                  onChange={(e) => setBulkBanDuration(e.target.value)}
+                  min="1"
+                  max="365"
+                />
+              )}
+            </>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="text"
+            color="blue-gray"
+            onClick={() => setShowBulkBanDialog(false)}
+            disabled={actionLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            color={bulkAction === "unban" ? "green" : "red"}
+            onClick={handleBulkBanConfirm}
+            disabled={actionLoading}
+          >
+            {actionLoading 
+              ? "Processing..." 
+              : bulkAction === "unban" 
+                ? `Unban ${selectedUsers.length} User(s)` 
+                : `Ban ${selectedUsers.length} User(s)`
+            }
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Pagination */}
       {meta && (
         <div className="flex items-center justify-between mt-4">
           <Typography variant="small" className="text-blue-gray-600">
