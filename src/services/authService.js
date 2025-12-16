@@ -56,9 +56,21 @@ export const verifyOtp = async (email, code) => {
 };
 
 /**
- * Check if user has admin role
+ * Check if user object has admin role
+ * Returns true if user.role.name === 'admin' or user.role === 'admin' (case-insensitive)
+ */
+export const isAdminUser = (user) => {
+  if (!user) return false;
+  // Handle both role.name (object) and role (string) formats
+  const roleName = user.role?.name || user.role || "";
+  return roleName.toLowerCase() === "admin";
+};
+
+/**
+ * Check if user has admin role via API
  * GET /me with Bearer token
  * Returns true if user.role.name === 'admin'
+ * Note: Prefer using isAdminUser() with user data from verifyOtp response
  */
 export const checkAdminRole = async (token) => {
   try {
@@ -90,9 +102,7 @@ export const checkAdminRole = async (token) => {
       return false;
     }
 
-    // Check if role name is admin (case-insensitive)
-    const roleName = userData.role?.name || userData.user?.role?.name || "";
-    return roleName.toLowerCase() === "admin";
+    return isAdminUser(userData.user || userData);
   } catch (err) {
     console.error("Error checking admin role:", err);
     return false;

@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { Input, Button, Typography } from "@material-tailwind/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { requestOtp, verifyOtp, resendOtp, checkAdminRole, logout } from "@/services/authService";
+import { requestOtp, verifyOtp, resendOtp, isAdminUser, logout } from "@/services/authService";
 
 function SignInForm() {
   const router = useRouter();
@@ -57,10 +57,9 @@ function SignInForm() {
       const data = await verifyOtp(email, code);
       console.log("[SignIn] verifyOtp success", data);
 
-      // Check admin role
-      console.log("[SignIn] Checking admin role...");
-      const token = data.token || data.authorization?.token;
-      const isAdmin = await checkAdminRole(token);
+      // Check admin role from user data in response
+      console.log("[SignIn] Checking admin role from user data...", { user: data.user });
+      const isAdmin = isAdminUser(data.user);
       console.log("[SignIn] Admin check result:", isAdmin);
 
       if (isAdmin) {
