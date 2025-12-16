@@ -58,26 +58,45 @@ export const verifyOtp = async (email, code) => {
 /**
  * Check if user object has admin role
  * Returns true if:
+ * - user.role_id === 6 (admin role id) - PRIMARY CHECK
  * - user.role.id === 6 (admin role id)
- * - user.role_id === 6 (admin role id)
  * - user.role.name === 'admin' (case-insensitive)
  * - user.role === 'admin' (case-insensitive)
  */
 export const isAdminUser = (user) => {
-  if (!user) return false;
+  if (!user) {
+    console.log("[isAdminUser] No user provided");
+    return false;
+  }
   
-  // Check role id first (most reliable) - handle both number and string
-  const roleId = user.role?.id || user.role_id;
-  if (roleId === 6 || roleId === "6" || Number(roleId) === 6) {
-    return true;
+  // Check role_id first (most common format) - handle both number and string
+  const roleId = user.role_id;
+  if (roleId !== undefined && roleId !== null) {
+    const roleIdNum = Number(roleId);
+    if (roleIdNum === 6) {
+      console.log("[isAdminUser] Admin detected via role_id:", roleId);
+      return true;
+    }
+  }
+  
+  // Check nested role.id
+  const nestedRoleId = user.role?.id;
+  if (nestedRoleId !== undefined && nestedRoleId !== null) {
+    const nestedRoleIdNum = Number(nestedRoleId);
+    if (nestedRoleIdNum === 6) {
+      console.log("[isAdminUser] Admin detected via role.id:", nestedRoleId);
+      return true;
+    }
   }
   
   // Fallback to role name check
   const roleName = user.role?.name || user.role || "";
-  if (roleName && roleName.toLowerCase() === "admin") {
+  if (roleName && typeof roleName === 'string' && roleName.toLowerCase() === "admin") {
+    console.log("[isAdminUser] Admin detected via role name:", roleName);
     return true;
   }
   
+  console.log("[isAdminUser] Not admin - user:", { role_id: user.role_id, role: user.role });
   return false;
 };
 
