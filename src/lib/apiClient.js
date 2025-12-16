@@ -108,6 +108,16 @@ async function parse(res) {
   }
 }
 
+// Helper to build headers with ngrok bypass and auth
+const buildHeaders = (token, additionalHeaders = {}) => {
+  return {
+    "Accept": "application/json",
+    "ngrok-skip-browser-warning": "true", // Bypass ngrok browser warning page
+    ...(token && { Authorization: `Bearer ${token}` }),
+    ...additionalHeaders,
+  };
+};
+
 export const apiClient = {
   get(endpoint, params = {}) {
     const token = getAuthToken();
@@ -119,10 +129,7 @@ export const apiClient = {
     const url = `${API_URL}${endpoint}${qs ? `?${qs}` : ""}`;
 
     return fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
+      headers: buildHeaders(token),
     }).then(parse);
   },
 
@@ -130,11 +137,9 @@ export const apiClient = {
     const token = getAuthToken();
     return fetch(`${API_URL}${endpoint}`, {
       method: "POST",
-      headers: {
+      headers: buildHeaders(token, {
         "Content-Type": "application/json",
-        "Accept": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
+      }),
       body: JSON.stringify(body),
     }).then(parse);
   },
@@ -143,11 +148,9 @@ export const apiClient = {
     const token = getAuthToken();
     return fetch(`${API_URL}${endpoint}`, {
       method: "PATCH",
-      headers: {
+      headers: buildHeaders(token, {
         "Content-Type": "application/json",
-        "Accept": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
+      }),
       body: JSON.stringify(body),
     }).then(parse);
   },
@@ -156,10 +159,7 @@ export const apiClient = {
     const token = getAuthToken();
     return fetch(`${API_URL}${endpoint}`, {
       method: "DELETE",
-      headers: {
-        "Accept": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
+      headers: buildHeaders(token),
     }).then(parse);
   },
 };

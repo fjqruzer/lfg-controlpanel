@@ -18,6 +18,7 @@ export const requestOtp = async (email) => {
     headers: { 
       "Content-Type": "application/json",
       "Accept": "application/json",
+      "ngrok-skip-browser-warning": "true", // Bypass ngrok browser warning page
     },
     body: JSON.stringify({ email }),
   });
@@ -37,6 +38,7 @@ export const verifyOtp = async (email, code) => {
     headers: { 
       "Content-Type": "application/json",
       "Accept": "application/json",
+      "ngrok-skip-browser-warning": "true", // Bypass ngrok browser warning page
     },
     body: JSON.stringify({ email, code }),
   });
@@ -113,6 +115,7 @@ export const checkAdminRole = async (token) => {
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "ngrok-skip-browser-warning": "true", // Bypass ngrok browser warning page
         Authorization: `Bearer ${token}`,
       },
     });
@@ -153,6 +156,7 @@ export const resendOtp = async (email) => {
     headers: { 
       "Content-Type": "application/json",
       "Accept": "application/json",
+      "ngrok-skip-browser-warning": "true", // Bypass ngrok browser warning page
     },
     body: JSON.stringify({ email }),
   });
