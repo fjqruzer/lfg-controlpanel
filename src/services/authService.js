@@ -66,6 +66,7 @@ export const checkAdminRole = async (token) => {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
         Authorization: `Bearer ${token}`,
       },
     });
@@ -74,7 +75,21 @@ export const checkAdminRole = async (token) => {
       return false;
     }
 
-    const userData = await res.json();
+    // Check if response is JSON before parsing
+    const contentType = res.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      console.error("Error checking admin role: Response is not JSON", { contentType, status: res.status });
+      return false;
+    }
+
+    let userData;
+    try {
+      userData = await res.json();
+    } catch (parseErr) {
+      console.error("Error checking admin role: Failed to parse JSON", parseErr);
+      return false;
+    }
+
     // Check if role name is admin (case-insensitive)
     const roleName = userData.role?.name || userData.user?.role?.name || "";
     return roleName.toLowerCase() === "admin";
