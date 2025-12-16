@@ -82,3 +82,5 @@ export const downloadDocument = async (id) => {
 export const deleteDocument = (id) =>
   apiClient.del(`/admin/documents/${id}`);
 
+
+

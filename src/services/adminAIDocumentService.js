@@ -21,3 +21,5 @@ export const reprocessDocumentAI = (id) =>
 export const checkAIServiceStatus = () =>
   apiClient.get("/admin/ai/check-service");
 
+
+

@@ -7,3 +7,5 @@ export default function UserDetailPage({ params }) {
   return <UserDetail userId={userId} />;
 }
 
+
+

@@ -8,3 +8,5 @@ export default function DocumentDetailPage() {
   return <DocumentDetail documentId={params.id} />;
 }
 
+
+

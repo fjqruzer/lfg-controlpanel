@@ -7,3 +7,5 @@ export default function TicketDetailPage({ params }) {
   return <TicketDetail ticketId={ticketId} />;
 }
 
+
+
