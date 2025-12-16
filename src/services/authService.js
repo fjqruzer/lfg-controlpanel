@@ -57,13 +57,28 @@ export const verifyOtp = async (email, code) => {
 
 /**
  * Check if user object has admin role
- * Returns true if user.role.name === 'admin' or user.role === 'admin' (case-insensitive)
+ * Returns true if:
+ * - user.role.id === 6 (admin role id)
+ * - user.role_id === 6 (admin role id)
+ * - user.role.name === 'admin' (case-insensitive)
+ * - user.role === 'admin' (case-insensitive)
  */
 export const isAdminUser = (user) => {
   if (!user) return false;
-  // Handle both role.name (object) and role (string) formats
+  
+  // Check role id first (most reliable) - handle both number and string
+  const roleId = user.role?.id || user.role_id;
+  if (roleId === 6 || roleId === "6" || Number(roleId) === 6) {
+    return true;
+  }
+  
+  // Fallback to role name check
   const roleName = user.role?.name || user.role || "";
-  return roleName.toLowerCase() === "admin";
+  if (roleName && roleName.toLowerCase() === "admin") {
+    return true;
+  }
+  
+  return false;
 };
 
 /**
