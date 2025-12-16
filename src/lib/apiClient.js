@@ -10,15 +10,55 @@ if (typeof window !== "undefined" && !API_URL) {
 }
 
 async function parse(res) {
+  // Check content-type before parsing
+  const contentType = res.headers.get("content-type") || "";
+  const isJson = contentType.includes("application/json");
+  
+  // Clone response for potential error handling (body can only be read once)
+  let responseClone = null;
+  try {
+    responseClone = res.clone();
+  } catch {
+    // Clone might fail in some environments, that's okay
+  }
+  
   if (!res.ok) {
     let data = null;
-    try {
-      data = await res.json();
-    } catch {
-      // ignore parse error
+    let errorMessage = "Request failed";
+    
+    if (isJson) {
+      try {
+        data = await res.json();
+        errorMessage = data?.message || data?.error || errorMessage;
+      } catch (parseErr) {
+        console.error("Failed to parse error response as JSON:", parseErr);
+        // Response might not actually be JSON despite content-type header
+        if (responseClone) {
+          try {
+            const text = await responseClone.text();
+            console.error("Non-JSON error response preview:", text.substring(0, 200));
+            if (text.includes("ngrok") || text.includes("html") || text.includes("<!DOCTYPE")) {
+              errorMessage = "API endpoint returned HTML instead of JSON. This may be due to ngrok intercepting the request or API misconfiguration.";
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    } else {
+      // Not JSON - log for debugging
+      try {
+        const text = await res.text();
+        console.error("Non-JSON error response:", { status: res.status, contentType, preview: text.substring(0, 200) });
+        if (text.includes("ngrok") || text.includes("html") || text.includes("<!DOCTYPE")) {
+          errorMessage = "API endpoint returned HTML instead of JSON. Check API configuration.";
+        }
+      } catch {
+        // ignore
+      }
     }
 
-    const err = new Error((data && data.message) || "Request failed");
+    const err = new Error(errorMessage);
     err.status = res.status;
     err.data = data;
 
@@ -30,7 +70,42 @@ async function parse(res) {
     throw err;
   }
 
-  return res.json();
+  // Success response - check if it's JSON
+  if (!isJson) {
+    const text = await res.text();
+    console.error("Expected JSON but received non-JSON response:", { 
+      url: res.url, 
+      contentType, 
+      status: res.status,
+      preview: text.substring(0, 200) 
+    });
+    
+    if (text.includes("ngrok") || text.includes("html") || text.includes("<!DOCTYPE")) {
+      throw new Error("API returned HTML instead of JSON. This may be due to ngrok intercepting requests or API misconfiguration. Please check NEXT_PUBLIC_API_URL.");
+    }
+    
+    throw new Error(`Expected JSON response but received ${contentType || 'unknown content type'}`);
+  }
+
+  // Parse JSON response
+  try {
+    return await res.json();
+  } catch (parseErr) {
+    // Even if content-type says JSON, parsing might fail (e.g., HTML response with wrong header)
+    console.error("JSON parse error:", parseErr);
+    if (responseClone) {
+      try {
+        const text = await responseClone.text();
+        console.error("Response preview:", text.substring(0, 500));
+        if (text.includes("ngrok") || text.includes("html") || text.includes("<!DOCTYPE")) {
+          throw new Error("API returned HTML instead of JSON. Check NEXT_PUBLIC_API_URL configuration.");
+        }
+      } catch {
+        // ignore
+      }
+    }
+    throw new Error(`Failed to parse JSON response: ${parseErr.message}`);
+  }
 }
 
 export const apiClient = {
