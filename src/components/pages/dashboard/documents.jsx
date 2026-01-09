@@ -41,19 +41,22 @@ import {
   getDocumentStatistics,
   verifyDocument,
   rejectDocument,
-  bulkVerifyDocuments,
-  bulkRejectDocuments,
+  resetDocument,
   downloadDocument,
   deleteDocument,
 } from "@/services/adminDocumentService";
 import { useRouter } from "next/navigation";
 import { getUserAvatarUrl, getDocumentFileUrl } from "@/lib/imageUrl";
+import { useNotifications } from "@/context/notifications";
 
 const documentTypes = ["All", "license", "id", "passport", "proof_of_address", "other"];
 const statuses = ["All", "pending", "verified", "rejected"];
+const entityTypes = ["All", "user", "venue", "team", "coach"];
+const documentCategories = ["All", "athlete_certification", "venue_business", "team_registration", "coach_license", "other"];
 
 export function Documents() {
   const router = useRouter();
+  const { notify } = useNotifications();
   const [query, setQuery] = useState("");
   const [documents, setDocuments] = useState([]);
   const [statistics, setStatistics] = useState(null);
@@ -65,6 +68,9 @@ export function Documents() {
   const [selectedDocs, setSelectedDocs] = useState([]);
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [entityTypeFilter, setEntityTypeFilter] = useState("All");
+  const [documentCategoryFilter, setDocumentCategoryFilter] = useState("All");
+  const [aiVerifiedFilter, setAiVerifiedFilter] = useState("All");
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
   const [showFilters, setShowFilters] = useState(false);
@@ -75,7 +81,6 @@ export function Documents() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [docToAction, setDocToAction] = useState(null);
   const [actionNotes, setActionNotes] = useState("");
-  const [bulkMode, setBulkMode] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   const loadDocuments = async () => {
@@ -83,9 +88,12 @@ export function Documents() {
       setLoading(true);
       setError("");
       const params = {
-        search: query || undefined,
+        q: query || undefined,
         document_type: typeFilter !== "All" ? typeFilter : undefined,
         status: statusFilter !== "All" ? statusFilter : undefined,
+        entity_type: entityTypeFilter !== "All" ? entityTypeFilter : undefined,
+        document_category: documentCategoryFilter !== "All" ? documentCategoryFilter : undefined,
+        ai_verified: aiVerifiedFilter !== "All" ? (aiVerifiedFilter === "true" ? true : false) : undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
         page,
@@ -94,7 +102,12 @@ export function Documents() {
       const res = await getAdminDocuments(params);
       const list = res.data || [];
       setDocuments(list);
-      setPagination(res.pagination || null);
+      setPagination(res.pagination || {
+        current_page: res.current_page,
+        last_page: res.last_page,
+        per_page: res.per_page,
+        total: res.total,
+      });
     } catch (err) {
       setError(err.message || "Failed to load documents");
       setDocuments([]);
@@ -117,7 +130,7 @@ export function Documents() {
     loadDocuments();
     loadStatistics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, typeFilter, statusFilter, sortBy, sortOrder]);
+  }, [page, typeFilter, statusFilter, entityTypeFilter, documentCategoryFilter, aiVerifiedFilter, sortBy, sortOrder]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -150,26 +163,31 @@ export function Documents() {
     }
   };
 
-  const handleVerifyClick = (doc = null) => {
-    if (doc) {
-      setDocToAction(doc);
-      setBulkMode(false);
-    } else {
-      setBulkMode(true);
-    }
+  const handleVerifyClick = (doc) => {
+    setDocToAction(doc);
     setActionNotes("");
     setShowVerifyDialog(true);
   };
 
-  const handleRejectClick = (doc = null) => {
-    if (doc) {
-      setDocToAction(doc);
-      setBulkMode(false);
-    } else {
-      setBulkMode(true);
-    }
+  const handleRejectClick = (doc) => {
+    setDocToAction(doc);
     setActionNotes("");
     setShowRejectDialog(true);
+  };
+
+  const handleResetClick = async (doc) => {
+    if (!confirm(`Reset verification for "${doc.document_name || doc.entity_name}"?`)) return;
+    try {
+      setActionLoading(true);
+      await resetDocument(doc.id);
+      notify('Document verification reset successfully', { color: 'green' });
+      loadDocuments();
+      loadStatistics();
+    } catch (err) {
+      notify(err.message || 'Failed to reset document verification', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleDeleteClick = (doc) => {
@@ -178,42 +196,34 @@ export function Documents() {
   };
 
   const handleVerifyConfirm = async () => {
+    if (!docToAction) return;
     try {
       setActionLoading(true);
-      if (bulkMode) {
-        await bulkVerifyDocuments(selectedDocs, actionNotes);
-        setSelectedDocs([]);
-      } else {
-        await verifyDocument(docToAction.id, actionNotes);
-      }
+      await verifyDocument(docToAction.id, actionNotes);
       setShowVerifyDialog(false);
       setDocToAction(null);
       setActionNotes("");
       loadDocuments();
       loadStatistics();
     } catch (err) {
-      alert(err.message || "Failed to verify document(s)");
+      alert(err.message || "Failed to verify document");
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleRejectConfirm = async () => {
+    if (!docToAction) return;
     try {
       setActionLoading(true);
-      if (bulkMode) {
-        await bulkRejectDocuments(selectedDocs, actionNotes);
-        setSelectedDocs([]);
-      } else {
-        await rejectDocument(docToAction.id, actionNotes);
-      }
+      await rejectDocument(docToAction.id, actionNotes);
       setShowRejectDialog(false);
       setDocToAction(null);
       setActionNotes("");
       loadDocuments();
       loadStatistics();
     } catch (err) {
-      alert(err.message || "Failed to reject document(s)");
+      alert(err.message || "Failed to reject document");
     } finally {
       setActionLoading(false);
     }
@@ -333,7 +343,27 @@ export function Documents() {
 
           {/* Advanced Filters */}
           {showFilters && (
-            <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Select 
+                label="Entity Type"
+                value={entityTypeFilter}
+                onChange={(e) => { setEntityTypeFilter(e); setPage(1); }}
+              >
+                {entityTypes.map(type => (
+                  <Option key={type} value={type}>{type === "All" ? "All Entities" : type.charAt(0).toUpperCase() + type.slice(1)}</Option>
+                ))}
+              </Select>
+              
+              <Select 
+                label="Document Category"
+                value={documentCategoryFilter}
+                onChange={(e) => { setDocumentCategoryFilter(e); setPage(1); }}
+              >
+                {documentCategories.map(cat => (
+                  <Option key={cat} value={cat}>{cat === "All" ? "All Categories" : cat.replace("_", " ")}</Option>
+                ))}
+              </Select>
+              
               <Select 
                 label="Document Type"
                 value={typeFilter}
@@ -353,39 +383,19 @@ export function Documents() {
                   <Option key={status} value={status}>{status === "All" ? "All Statuses" : status}</Option>
                 ))}
               </Select>
+              
+              <Select 
+                label="AI Verified"
+                value={aiVerifiedFilter}
+                onChange={(e) => { setAiVerifiedFilter(e); setPage(1); }}
+              >
+                <Option value="All">All</Option>
+                <Option value="true">AI Verified</Option>
+                <Option value="false">Manual</Option>
+              </Select>
             </div>
           )}
 
-          {/* Bulk Actions */}
-          {selectedDocs.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-white/20 flex items-center justify-between">
-              <Typography variant="small" color="white">
-                {selectedDocs.length} document(s) selected
-              </Typography>
-              <div className="flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="text" 
-                  color="white"
-                  className="normal-case"
-                  onClick={() => handleVerifyClick()}
-                >
-                  <CheckCircleIcon className="h-4 w-4 mr-2" />
-                  Verify Selected
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="text" 
-                  color="white"
-                  className="normal-case"
-                  onClick={() => handleRejectClick()}
-                >
-                  <XCircleIcon className="h-4 w-4 mr-2" />
-                  Reject Selected
-                </Button>
-              </div>
-            </div>
-          )}
         </CardHeader>
         
         <CardBody className="overflow-x-scroll px-0 pt-0 pb-2">
@@ -408,8 +418,10 @@ export function Documents() {
                   />
                 </th>
                 {[
-                  { key: "user", label: "user" },
+                  { key: "entity", label: "entity" },
+                  { key: "entity_type", label: "entity type" },
                   { key: "document_name", label: "document name" },
+                  { key: "document_category", label: "category" },
                   { key: "document_type", label: "type" },
                   { key: "verification_status", label: "status" },
                   { key: "created_at", label: "submitted" },
@@ -424,7 +436,7 @@ export function Documents() {
                       <Typography variant="small" className="text-[11px] font-bold uppercase">
                         {col.label}
                       </Typography>
-                      {col.key !== "actions" && col.key !== "user" && (
+                      {col.key !== "actions" && col.key !== "entity" && col.key !== "entity_type" && (
                         <ChevronUpDownIcon className="h-4 w-4" />
                       )}
                     </button>
@@ -436,7 +448,7 @@ export function Documents() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="py-6 px-5 text-center text-blue-gray-400"
                   >
                     Loading documents...
@@ -445,7 +457,7 @@ export function Documents() {
               ) : documents.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="py-6 px-5 text-center text-blue-gray-400"
                   >
                     No documents found.
@@ -464,27 +476,109 @@ export function Documents() {
                         />
                       </td>
                       <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                        <div className="flex items-center gap-3">
-                          <Avatar
-                            src={getUserAvatarUrl(doc.user)}
-                            alt={doc.user?.username || "User"}
-                            size="sm"
-                            variant="rounded"
-                          />
-                          <div>
-                            <Typography variant="small" color="blue-gray" className="font-semibold">
-                              {doc.user?.first_name} {doc.user?.last_name}
-                            </Typography>
-                            <Typography className="text-xs text-blue-gray-400">
-                              @{doc.user?.username || doc.user?.email?.split("@")[0] || "—"}
-                            </Typography>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            // Determine entity for avatar display
+                            const entityUser = doc.user || doc.documentable?.user || doc.documentable;
+                            const entityType = doc.entity_type_display || doc.documentable_type?.split('\\').pop()?.toLowerCase();
+                            
+                            // For user/coach entities, show user avatar
+                            if (entityType === 'user' || entityType === 'coach' && entityUser) {
+                              return (
+                                <>
+                                  <Avatar
+                                    src={getUserAvatarUrl(entityUser)}
+                                    alt={doc.entity_name || entityUser.username || "Entity"}
+                                    size="sm"
+                                    variant="rounded"
+                                  />
+                                  <div>
+                                    <Typography variant="small" color="blue-gray" className="font-semibold">
+                                      {doc.entity_name || entityUser.username || entityUser.first_name || "—"}
+                                    </Typography>
+                                    {entityUser.email && (
+                                      <Typography className="text-xs text-blue-gray-400">
+                                        {entityUser.email}
+                                      </Typography>
+                                    )}
+                                  </div>
+                                </>
+                              );
+                            }
+                            
+                            // For team entities, show creator avatar if available
+                            if (entityType === 'team' && doc.documentable?.creator) {
+                              return (
+                                <>
+                                  <Avatar
+                                    src={getUserAvatarUrl(doc.documentable.creator)}
+                                    alt={doc.entity_name || "Team"}
+                                    size="sm"
+                                    variant="rounded"
+                                  />
+                                  <div>
+                                    <Typography variant="small" color="blue-gray" className="font-semibold">
+                                      {doc.entity_name || doc.documentable?.name || "—"}
+                                    </Typography>
+                                    <Typography className="text-xs text-blue-gray-400">
+                                      Team
+                                    </Typography>
+                                  </div>
+                                </>
+                              );
+                            }
+                            
+                            // For venue entities, show owner avatar if available
+                            if (entityType === 'venue' && (doc.documentable?.owner || doc.documentable?.user)) {
+                              return (
+                                <>
+                                  <Avatar
+                                    src={getUserAvatarUrl(doc.documentable.owner || doc.documentable.user)}
+                                    alt={doc.entity_name || "Venue"}
+                                    size="sm"
+                                    variant="rounded"
+                                  />
+                                  <div>
+                                    <Typography variant="small" color="blue-gray" className="font-semibold">
+                                      {doc.entity_name || doc.documentable?.name || "—"}
+                                    </Typography>
+                                    <Typography className="text-xs text-blue-gray-400">
+                                      Venue
+                                    </Typography>
+                                  </div>
+                                </>
+                              );
+                            }
+                            
+                            // Fallback: just show name
+                            return (
+                              <Typography variant="small" color="blue-gray" className="font-semibold">
+                                {doc.entity_name || doc.user?.username || doc.documentable?.name || "—"}
+                              </Typography>
+                            );
+                          })()}
                         </div>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Chip
+                          variant="ghost"
+                          color="blue-gray"
+                          value={doc.entity_type_display || doc.documentable_type?.split('\\').pop() || "—"}
+                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
+                        />
                       </td>
                       <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Typography variant="small" color="blue-gray" className="font-semibold">
                           {doc.document_name || "—"}
                         </Typography>
+                      </td>
+                      <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
+                        <Chip
+                          variant="ghost"
+                          color="gray"
+                          value={doc.document_category?.replace("_", " ") || "—"}
+                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
+                        />
                       </td>
                       <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Chip
@@ -495,7 +589,18 @@ export function Documents() {
                         />
                       </td>
                       <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                        <StatusChip status={doc.verification_status || "pending"} type="document" />
+                        <div className="flex flex-col gap-1">
+                          <StatusChip status={doc.verification_status || "pending"} type="document" />
+                          {doc.verified_by_ai !== undefined && (
+                            <Chip
+                              size="sm"
+                              variant="ghost"
+                              value={doc.verified_by_ai ? "AI" : "Manual"}
+                              color={doc.verified_by_ai ? "blue" : "gray"}
+                              className="py-0.5 px-2 text-[10px] w-fit"
+                            />
+                          )}
+                        </div>
                       </td>
                       <td className={`py-3 px-5 ${idx !== documents.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Typography className="text-xs font-normal text-blue-gray-600">
@@ -545,6 +650,12 @@ export function Documents() {
                                 <ArrowDownTrayIcon className="h-4 w-4 mr-2 inline" />
                                 Download
                               </MenuItem>
+                              {(doc.verification_status === "verified" || doc.verification_status === "rejected") && (
+                                <MenuItem onClick={() => handleResetClick(doc)}>
+                                  <ArrowPathIcon className="h-4 w-4 mr-2 inline" />
+                                  Reset Verification
+                                </MenuItem>
+                              )}
                               <MenuItem 
                                 className="text-red-500"
                                 onClick={() => handleDeleteClick(doc)}
@@ -600,7 +711,7 @@ export function Documents() {
       >
         <div className="flex items-center justify-between p-4 border-b">
           <Typography variant="h5" color="blue-gray">
-            {bulkMode ? `Verify ${selectedDocs.length} Document(s)` : "Verify Document"}
+            Verify Document
           </Typography>
           <IconButton
             variant="text"
@@ -612,10 +723,7 @@ export function Documents() {
         </div>
         <DialogBody>
           <Typography variant="paragraph" color="blue-gray" className="mb-4">
-            {bulkMode 
-              ? `Are you sure you want to verify ${selectedDocs.length} document(s)?`
-              : `Are you sure you want to verify "${docToAction?.document_name}"?`
-            }
+            Are you sure you want to verify "{docToAction?.document_name || docToAction?.entity_name}"?
           </Typography>
           <Textarea
             label="Verification Notes (optional)"
@@ -651,7 +759,7 @@ export function Documents() {
       >
         <div className="flex items-center justify-between p-4 border-b">
           <Typography variant="h5" color="blue-gray">
-            {bulkMode ? `Reject ${selectedDocs.length} Document(s)` : "Reject Document"}
+            Reject Document
           </Typography>
           <IconButton
             variant="text"
@@ -663,16 +771,14 @@ export function Documents() {
         </div>
         <DialogBody>
           <Typography variant="paragraph" color="blue-gray" className="mb-4">
-            {bulkMode 
-              ? `Are you sure you want to reject ${selectedDocs.length} document(s)?`
-              : `Are you sure you want to reject "${docToAction?.document_name}"?`
-            }
+            Are you sure you want to reject "{docToAction?.document_name || docToAction?.entity_name}"?
           </Typography>
           <Textarea
-            label="Rejection Reason"
+            label="Rejection Reason (Required)"
             value={actionNotes}
             onChange={(e) => setActionNotes(e.target.value)}
             rows={3}
+            required
           />
         </DialogBody>
         <DialogFooter>
@@ -687,7 +793,7 @@ export function Documents() {
           <Button
             color="red"
             onClick={handleRejectConfirm}
-            disabled={actionLoading}
+            disabled={actionLoading || !actionNotes.trim()}
           >
             {actionLoading ? "Processing..." : "Reject"}
           </Button>

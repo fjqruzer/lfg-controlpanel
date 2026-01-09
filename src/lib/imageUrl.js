@@ -89,10 +89,15 @@ export function getUserAvatarUrl(user) {
 
 /**
  * Get document file URL
- * @param {object} document - Document object with file_path field
+ * @param {object} document - Document object with file_url (full URL) or file_path (relative path) field
  * @returns {string} URL to document file
  */
 export function getDocumentFileUrl(document) {
+  // API returns file_url as full URL (may be ngrok URL) - use it directly
+  if (document?.file_url) {
+    return document.file_url;
+  }
+  // Fallback to file_path if file_url not available
   if (document?.file_path) {
     return getStorageUrl(document.file_path);
   }

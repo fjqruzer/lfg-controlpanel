@@ -9,13 +9,13 @@ export const getSmartQueue = () =>
 export const getAIStatistics = () =>
   apiClient.get("/admin/documents/ai/statistics");
 
-// Get AI analysis for a specific document
+// Get AI analysis for a specific entity document
 export const getDocumentAIAnalysis = (id) =>
-  apiClient.get(`/admin/documents/${id}/ai-analysis`);
+  apiClient.get(`/admin/entity-documents/${id}/ai-analysis`);
 
-// Reprocess document with AI
+// Reprocess entity document with AI
 export const reprocessDocumentAI = (id) =>
-  apiClient.post(`/admin/documents/${id}/ai-reprocess`, {});
+  apiClient.post(`/admin/entity-documents/${id}/ai-reprocess`, {});
 
 // Check AI service status
 export const checkAIServiceStatus = () =>

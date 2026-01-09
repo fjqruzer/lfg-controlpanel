@@ -4,53 +4,45 @@ import { getAuthToken } from "@/services/authService";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// List all documents with filtering
+// List all entity documents with filtering (polymorphic)
 export const getAdminDocuments = (params = {}) =>
-  apiClient.get("/admin/documents", params);
+  apiClient.get("/admin/entity-documents", params);
 
-// Get document statistics
+// Get document statistics (AI statistics)
 export const getDocumentStatistics = () =>
-  apiClient.get("/admin/documents/statistics");
+  apiClient.get("/admin/documents/ai/statistics");
 
 // Get specific document details
 export const getAdminDocument = (id) =>
-  apiClient.get(`/admin/documents/${id}`);
+  apiClient.get(`/admin/entity-documents/${id}`);
 
-// Get all documents for a specific user
+// Note: getUserDocuments moved to adminUserService.js
+// This function is kept for backwards compatibility but redirects
 export const getUserDocuments = (userId) =>
   apiClient.get(`/admin/users/${userId}/documents`);
 
-// Verify (approve) a document
+// Verify (approve) an entity document
 export const verifyDocument = (id, notes = "") =>
-  apiClient.post(`/admin/documents/${id}/verify`, { verification_notes: notes });
+  apiClient.post(`/admin/entity-documents/${id}/verify`, { 
+    verification_notes: notes 
+  });
 
-// Reject a document
+// Reject an entity document
 export const rejectDocument = (id, notes = "") =>
-  apiClient.post(`/admin/documents/${id}/reject`, { verification_notes: notes });
+  apiClient.post(`/admin/entity-documents/${id}/reject`, { 
+    verification_notes: notes 
+  });
 
 // Reset document verification to pending
 export const resetDocument = (id) =>
-  apiClient.post(`/admin/documents/${id}/reset`, {});
-
-// Bulk verify documents
-export const bulkVerifyDocuments = (documentIds, notes = "") =>
-  apiClient.post("/admin/documents/bulk-verify", {
-    document_ids: documentIds,
-    verification_notes: notes,
-  });
-
-// Bulk reject documents
-export const bulkRejectDocuments = (documentIds, notes = "") =>
-  apiClient.post("/admin/documents/bulk-reject", {
-    document_ids: documentIds,
-    verification_notes: notes,
-  });
+  apiClient.post(`/admin/entity-documents/${id}/reset`, {});
 
 // Download document file
 export const downloadDocument = async (id) => {
   const token = getAuthToken();
-  const res = await fetch(`${API_URL}/admin/documents/${id}/download`, {
+  const res = await fetch(`${API_URL}/admin/entity-documents/${id}/download`, {
     headers: {
+      "ngrok-skip-browser-warning": "true",
       ...(token && { Authorization: `Bearer ${token}` }),
     },
   });
@@ -80,7 +72,7 @@ export const downloadDocument = async (id) => {
 
 // Delete document permanently
 export const deleteDocument = (id) =>
-  apiClient.del(`/admin/documents/${id}`);
+  apiClient.del(`/admin/entity-documents/${id}`);
 
 
 

@@ -237,10 +237,28 @@ export function DocumentDetail({ documentId }) {
             <CardBody>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <Typography variant="small" className="text-blue-gray-500 mb-1">Reference Number</Typography>
+                  <Typography variant="small" className="text-blue-gray-500 mb-1">Entity</Typography>
                   <Typography color="blue-gray" className="font-medium">
-                    {document.reference_number || "—"}
+                    {document.entity_name || document.user?.username || document.documentable?.name || "—"}
                   </Typography>
+                </div>
+                <div>
+                  <Typography variant="small" className="text-blue-gray-500 mb-1">Entity Type</Typography>
+                  <Chip
+                    variant="ghost"
+                    color="blue-gray"
+                    value={document.entity_type_display || document.documentable_type?.split('\\').pop() || "—"}
+                    className="w-fit"
+                  />
+                </div>
+                <div>
+                  <Typography variant="small" className="text-blue-gray-500 mb-1">Document Category</Typography>
+                  <Chip
+                    variant="ghost"
+                    color="gray"
+                    value={document.document_category?.replace("_", " ") || "—"}
+                    className="w-fit"
+                  />
                 </div>
                 <div>
                   <Typography variant="small" className="text-blue-gray-500 mb-1">Document Type</Typography>
@@ -250,6 +268,12 @@ export function DocumentDetail({ documentId }) {
                     value={document.document_type?.replace("_", " ") || "—"}
                     className="w-fit"
                   />
+                </div>
+                <div>
+                  <Typography variant="small" className="text-blue-gray-500 mb-1">Reference Number</Typography>
+                  <Typography color="blue-gray" className="font-medium">
+                    {document.reference_number || "—"}
+                  </Typography>
                 </div>
                 <div>
                   <Typography variant="small" className="text-blue-gray-500 mb-1">Issue Date</Typography>
@@ -327,7 +351,7 @@ export function DocumentDetail({ documentId }) {
           </Card>
 
           {/* Document Preview */}
-          {document.file_path && (
+          {(document.file_url || document.file_path) && (
             <Card>
               <CardBody>
                 <Typography variant="h6" color="blue-gray" className="mb-4">
@@ -411,8 +435,30 @@ export function DocumentDetail({ documentId }) {
                         <Typography variant="small" className="text-blue-gray-500">
                           Reviewed by
                         </Typography>
+                        <div className="flex items-center gap-2">
+                          <Typography color="blue-gray" className="font-medium">
+                            {document.verifier.username || "System"}
+                          </Typography>
+                          {document.verified_by_ai !== undefined && (
+                            <Chip
+                              size="sm"
+                              value={document.verified_by_ai ? "AI" : "Manual"}
+                              color={document.verified_by_ai ? "blue" : "gray"}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {document.ai_confidence_score && (
+                    <div className="flex items-center gap-3">
+                      <SparklesIcon className="h-5 w-5 text-blue-gray-400" />
+                      <div>
+                        <Typography variant="small" className="text-blue-gray-500">
+                          AI Confidence Score
+                        </Typography>
                         <Typography color="blue-gray" className="font-medium">
-                          {document.verifier.username}
+                          {document.ai_confidence_score}%
                         </Typography>
                       </div>
                     </div>
@@ -522,40 +568,148 @@ export function DocumentDetail({ documentId }) {
           <Card>
             <CardBody>
               <Typography variant="h6" color="blue-gray" className="mb-4">
-                Document Owner
+                Entity Owner
               </Typography>
-              {document.user ? (
-                <div className="flex flex-col items-center text-center">
-                  <Avatar
-                    src={getUserAvatarUrl(document.user)}
-                    alt={document.user.username}
-                    size="xl"
-                    variant="rounded"
-                    className="mb-4"
-                  />
-                  <Typography variant="h6" color="blue-gray">
-                    {document.user.first_name} {document.user.last_name}
+              {(() => {
+                const entityType = document.entity_type_display?.toLowerCase() || document.documentable_type?.split('\\').pop()?.toLowerCase();
+                const entityUser = document.user || document.documentable?.user || document.documentable?.creator || document.documentable?.owner;
+                const entityName = document.entity_name || document.user?.username || document.documentable?.name;
+                
+                if (entityUser && (entityType === 'user' || entityType === 'coach')) {
+                  return (
+                    <div className="flex flex-col items-center text-center">
+                      <Avatar
+                        src={getUserAvatarUrl(entityUser)}
+                        alt={entityUser.username || entityName}
+                        size="xl"
+                        variant="rounded"
+                        className="mb-4"
+                      />
+                      <Typography variant="h6" color="blue-gray">
+                        {entityUser.first_name && entityUser.last_name 
+                          ? `${entityUser.first_name} ${entityUser.last_name}` 
+                          : entityUser.username || entityName}
+                      </Typography>
+                      <Typography className="text-blue-gray-500 mb-2">
+                        @{entityUser.username || entityUser.email?.split('@')[0] || "—"}
+                      </Typography>
+                      {entityUser.email && (
+                        <Typography variant="small" className="text-blue-gray-500">
+                          {entityUser.email}
+                        </Typography>
+                      )}
+                      <Button
+                        variant="outlined"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => {
+                          if (entityType === 'coach') {
+                            router.push(`/dashboard/coaches/${document.documentable?.id || document.documentable_id}`);
+                          } else {
+                            router.push(`/dashboard/users/${entityUser.id || document.documentable_id}`);
+                          }
+                        }}
+                      >
+                        View {entityType === 'coach' ? 'Coach' : 'User'} Profile
+                      </Button>
+                    </div>
+                  );
+                }
+                
+                if (entityType === 'team' && document.documentable?.creator) {
+                  return (
+                    <div className="flex flex-col items-center text-center">
+                      <Avatar
+                        src={getUserAvatarUrl(document.documentable.creator)}
+                        alt={entityName || "Team"}
+                        size="xl"
+                        variant="rounded"
+                        className="mb-4"
+                      />
+                      <Typography variant="h6" color="blue-gray">
+                        {entityName || "Team"}
+                      </Typography>
+                      <Typography className="text-blue-gray-500 mb-2">
+                        Created by @{document.documentable.creator.username || document.documentable.creator.email?.split('@')[0]}
+                      </Typography>
+                      <Button
+                        variant="outlined"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => router.push(`/dashboard/teams/${document.documentable?.id || document.documentable_id}`)}
+                      >
+                        View Team
+                      </Button>
+                    </div>
+                  );
+                }
+                
+                if (entityType === 'venue' && (document.documentable?.owner || document.documentable?.user)) {
+                  const owner = document.documentable.owner || document.documentable.user;
+                  return (
+                    <div className="flex flex-col items-center text-center">
+                      <Avatar
+                        src={getUserAvatarUrl(owner)}
+                        alt={entityName || "Venue"}
+                        size="xl"
+                        variant="rounded"
+                        className="mb-4"
+                      />
+                      <Typography variant="h6" color="blue-gray">
+                        {entityName || "Venue"}
+                      </Typography>
+                      <Typography className="text-blue-gray-500 mb-2">
+                        Owned by @{owner.username || owner.email?.split('@')[0]}
+                      </Typography>
+                      <Button
+                        variant="outlined"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => router.push(`/dashboard/venues/${document.documentable?.id || document.documentable_id}`)}
+                      >
+                        View Venue
+                      </Button>
+                    </div>
+                  );
+                }
+                
+                if (document.user) {
+                  return (
+                    <div className="flex flex-col items-center text-center">
+                      <Avatar
+                        src={getUserAvatarUrl(document.user)}
+                        alt={document.user.username}
+                        size="xl"
+                        variant="rounded"
+                        className="mb-4"
+                      />
+                      <Typography variant="h6" color="blue-gray">
+                        {document.user.first_name} {document.user.last_name}
+                      </Typography>
+                      <Typography className="text-blue-gray-500 mb-2">
+                        @{document.user.username}
+                      </Typography>
+                      <Typography variant="small" className="text-blue-gray-500">
+                        {document.user.email}
+                      </Typography>
+                      <Button
+                        variant="outlined"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => router.push(`/dashboard/users/${document.user.id}`)}
+                      >
+                        View User Profile
+                      </Button>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <Typography className="text-blue-gray-500 text-center">
+                    Entity information not available
                   </Typography>
-                  <Typography className="text-blue-gray-500 mb-2">
-                    @{document.user.username}
-                  </Typography>
-                  <Typography variant="small" className="text-blue-gray-500">
-                    {document.user.email}
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    size="sm"
-                    className="mt-4"
-                    onClick={() => router.push(`/dashboard/users/${document.user.id}`)}
-                  >
-                    View User Profile
-                  </Button>
-                </div>
-              ) : (
-                <Typography className="text-blue-gray-500 text-center">
-                  User information not available
-                </Typography>
-              )}
+                );
+              })()}
             </CardBody>
           </Card>
 
@@ -579,7 +733,7 @@ export function DocumentDetail({ documentId }) {
                 <div className="flex justify-between">
                   <Typography variant="small" className="text-blue-gray-500">File</Typography>
                   <Typography variant="small" color="blue-gray">
-                    {document.file_path ? "Available" : "Not uploaded"}
+                    {(document.file_url || document.file_path) ? "Available" : "Not uploaded"}
                   </Typography>
                 </div>
               </div>

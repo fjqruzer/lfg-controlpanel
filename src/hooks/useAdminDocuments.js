@@ -9,8 +9,6 @@ import {
   verifyDocument,
   rejectDocument,
   resetDocument,
-  bulkVerifyDocuments,
-  bulkRejectDocuments,
   deleteDocument,
 } from "@/services/adminDocumentService";
 import {
@@ -21,27 +19,27 @@ import {
   checkAIServiceStatus,
 } from "@/services/adminAIDocumentService";
 
-// Document list with filtering
+// Entity documents list with filtering (polymorphic)
 export function useAdminDocuments(filters) {
   return useQuery({
-    queryKey: ["admin-documents", filters],
+    queryKey: ["admin-entity-documents", filters],
     queryFn: () => getAdminDocuments(filters || {}),
     keepPreviousData: true,
   });
 }
 
-// Document statistics
+// AI Document statistics
 export function useDocumentStatistics() {
   return useQuery({
-    queryKey: ["admin-document-statistics"],
+    queryKey: ["admin-document-ai-statistics"],
     queryFn: getDocumentStatistics,
   });
 }
 
-// Single document
+// Single entity document
 export function useAdminDocument(id) {
   return useQuery({
-    queryKey: ["admin-document", id],
+    queryKey: ["admin-entity-document", id],
     queryFn: () => getAdminDocument(id),
     enabled: !!id,
   });
@@ -56,81 +54,57 @@ export function useUserDocuments(userId) {
   });
 }
 
-// Verify document mutation
+// Verify entity document mutation
 export function useVerifyDocument() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, notes }) => verifyDocument(id, notes),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["admin-documents"] });
-      qc.invalidateQueries({ queryKey: ["admin-document-statistics"] });
+      qc.invalidateQueries({ queryKey: ["admin-entity-documents"] });
+      qc.invalidateQueries({ queryKey: ["admin-document-ai-statistics"] });
       if (variables?.id) {
-        qc.invalidateQueries({ queryKey: ["admin-document", variables.id] });
+        qc.invalidateQueries({ queryKey: ["admin-entity-document", variables.id] });
       }
     },
   });
 }
 
-// Reject document mutation
+// Reject entity document mutation
 export function useRejectDocument() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, notes }) => rejectDocument(id, notes),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["admin-documents"] });
-      qc.invalidateQueries({ queryKey: ["admin-document-statistics"] });
+      qc.invalidateQueries({ queryKey: ["admin-entity-documents"] });
+      qc.invalidateQueries({ queryKey: ["admin-document-ai-statistics"] });
       if (variables?.id) {
-        qc.invalidateQueries({ queryKey: ["admin-document", variables.id] });
+        qc.invalidateQueries({ queryKey: ["admin-entity-document", variables.id] });
       }
     },
   });
 }
 
-// Reset document mutation
+// Reset entity document mutation
 export function useResetDocument() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id) => resetDocument(id),
     onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: ["admin-documents"] });
-      qc.invalidateQueries({ queryKey: ["admin-document-statistics"] });
-      qc.invalidateQueries({ queryKey: ["admin-document", id] });
+      qc.invalidateQueries({ queryKey: ["admin-entity-documents"] });
+      qc.invalidateQueries({ queryKey: ["admin-document-ai-statistics"] });
+      qc.invalidateQueries({ queryKey: ["admin-entity-document", id] });
     },
   });
 }
 
-// Bulk verify mutation
-export function useBulkVerifyDocuments() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, notes }) => bulkVerifyDocuments(ids, notes),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-documents"] });
-      qc.invalidateQueries({ queryKey: ["admin-document-statistics"] });
-    },
-  });
-}
-
-// Bulk reject mutation
-export function useBulkRejectDocuments() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, notes }) => bulkRejectDocuments(ids, notes),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-documents"] });
-      qc.invalidateQueries({ queryKey: ["admin-document-statistics"] });
-    },
-  });
-}
-
-// Delete document mutation
+// Delete entity document mutation
 export function useDeleteDocument() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id) => deleteDocument(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-documents"] });
-      qc.invalidateQueries({ queryKey: ["admin-document-statistics"] });
+      qc.invalidateQueries({ queryKey: ["admin-entity-documents"] });
+      qc.invalidateQueries({ queryKey: ["admin-document-ai-statistics"] });
     },
   });
 }

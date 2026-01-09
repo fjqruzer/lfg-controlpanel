@@ -9,3 +9,23 @@ export default function TicketDetailPage({ params }) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -7,6 +7,8 @@ import {
   CalendarDaysIcon,
   DocumentTextIcon,
   TicketIcon,
+  UserGroupIcon,
+  AcademicCapIcon,
 } from "@heroicons/react/24/solid";
 
 const icon = {
@@ -48,6 +50,16 @@ export const routes = [
         icon: <UserCircleIcon {...icon} />,
         name: "users",
         path: "/users",
+      },
+      {
+        icon: <UserGroupIcon {...icon} />,
+        name: "teams",
+        path: "/teams",
+      },
+      {
+        icon: <AcademicCapIcon {...icon} />,
+        name: "coaches",
+        path: "/coaches",
       },
       {
         icon: <DocumentTextIcon {...icon} />,

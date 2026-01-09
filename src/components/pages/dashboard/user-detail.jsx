@@ -701,3 +701,23 @@ export function UserDetail({ userId }) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

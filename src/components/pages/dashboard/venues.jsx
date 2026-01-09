@@ -35,6 +35,8 @@ import {
   EyeIcon,
   ArrowDownTrayIcon,
   ChevronUpDownIcon,
+  DocumentTextIcon,
+  ArrowPathIcon,
 } from "@heroicons/react/24/solid";
 import Link from "next/link";
 import { useNotifications } from "@/context/notifications";
@@ -44,11 +46,13 @@ import {
   updateAdminVenue,
   approveAdminVenue,
   rejectAdminVenue,
+  resetVenueVerification,
+  getVenueDocuments,
 } from "@/services/adminVenueService";
 import { exportVenues } from "@/services/adminExportService";
 import { getVenuePhotoUrl } from "@/lib/imageUrl";
 
-const statuses = ["All", "active", "closed"];
+const statuses = ["All", "verified", "unverified", "active", "closed"];
 
 export function Venues() {
   const { notify } = useNotifications();
@@ -63,6 +67,7 @@ export function Venues() {
   const [viewMode, setViewMode] = useState("list");
   const [showFilters, setShowFilters] = useState(false);
   const [selectedVenues, setSelectedVenues] = useState([]);
+  const [aiVerifiedFilter, setAiVerifiedFilter] = useState("All");
   const [sortBy, setSortBy] = useState("id");
   const [sortOrder, setSortOrder] = useState("desc");
 
@@ -82,6 +87,7 @@ export function Venues() {
       const params = {
         q: query || undefined,
         status: statusFilter !== "All" ? statusFilter : undefined,
+        ai_verified: aiVerifiedFilter !== "All" ? (aiVerifiedFilter === "true" ? true : false) : undefined,
         page,
         per_page: perPage,
       };
@@ -110,7 +116,7 @@ export function Venues() {
   useEffect(() => {
     loadVenues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, statusFilter]);
+  }, [page, statusFilter, aiVerifiedFilter]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -165,6 +171,20 @@ export function Venues() {
       loadVenues();
     } catch (err) {
       notify(err.message || 'Failed to approve venue', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResetVerification = async (venue) => {
+    if (!confirm(`Reset verification for ${venue.name}?`)) return;
+    try {
+      setActionLoading(true);
+      await resetVenueVerification(venue.id);
+      notify('Venue verification reset successfully', { color: 'green' });
+      loadVenues();
+    } catch (err) {
+      notify(err.message || 'Failed to reset verification', { color: 'red' });
     } finally {
       setActionLoading(false);
     }
@@ -294,7 +314,7 @@ export function Venues() {
           {showFilters && (
             <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select 
-                label="Status"
+                label="Verification Status"
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e); setPage(1); }}
               >
@@ -303,6 +323,15 @@ export function Venues() {
                     {status === "All" ? "All Statuses" : status.charAt(0).toUpperCase() + status.slice(1)}
                   </Option>
                 ))}
+              </Select>
+              <Select 
+                label="AI Verified"
+                value={aiVerifiedFilter}
+                onChange={(e) => { setAiVerifiedFilter(e); setPage(1); }}
+              >
+                <Option value="All">All</Option>
+                <Option value="true">AI Verified</Option>
+                <Option value="false">Manual</Option>
               </Select>
             </div>
           )}
@@ -536,12 +565,32 @@ export function Venues() {
                             />
                               </td>
                               <td className={className}>
-                                <Chip 
-                                  variant="filled" 
-                              color={getVerificationColor(verificationStatus)}
-                              value={verificationStatus} 
-                                  className="py-0.5 px-2 text-[10px] font-medium w-fit capitalize" 
-                                />
+                                <div className="flex flex-col gap-1">
+                                  <Chip 
+                                    variant="filled" 
+                                    color={getVerificationColor(verificationStatus)}
+                                    value={verificationStatus} 
+                                    className="py-0.5 px-2 text-[10px] font-medium w-fit capitalize" 
+                                  />
+                                  {v.verified_by_ai !== undefined && (
+                                    <Chip
+                                      size="sm"
+                                      variant="ghost"
+                                      value={v.verified_by_ai ? "AI Verified" : "Manual"}
+                                      color={v.verified_by_ai ? "blue" : "gray"}
+                                      className="py-0.5 px-2 text-[9px] w-fit"
+                                    />
+                                  )}
+                                  {v.verification_source && (
+                                    <Chip
+                                      size="sm"
+                                      variant="ghost"
+                                      value={v.verification_source === "ai" ? "AI" : "Manual"}
+                                      color={v.verification_source === "ai" ? "blue" : "gray"}
+                                      className="py-0.5 px-2 text-[9px] w-fit"
+                                    />
+                                  )}
+                                </div>
                               </td>
                               <td className={className}>
                             <Typography className="text-xs font-normal text-blue-gray-600">
@@ -585,6 +634,18 @@ export function Venues() {
                                       View Details
                                     </MenuItem>
                                   </Link>
+                                  <Link href={`/dashboard/documents?entity_type=venue&q=${v.id}`}>
+                                    <MenuItem>
+                                      <DocumentTextIcon className="h-4 w-4 mr-2 inline" />
+                                      View Documents
+                                    </MenuItem>
+                                  </Link>
+                                  {v.verified_at && (
+                                    <MenuItem onClick={() => handleResetVerification(v)}>
+                                      <ArrowPathIcon className="h-4 w-4 mr-2 inline" />
+                                      Reset Verification
+                                    </MenuItem>
+                                  )}
                                   <MenuItem onClick={() => handleEditClick(v)}>
                                     <svg className="h-4 w-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />

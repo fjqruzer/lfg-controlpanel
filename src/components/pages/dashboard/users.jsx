@@ -35,6 +35,7 @@ import {
   ChevronUpDownIcon,
   XMarkIcon,
   EyeIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/solid";
 import {
   getAdminUsers,
@@ -42,6 +43,9 @@ import {
   banAdminUser,
   unbanAdminUser,
   getAdminUserActivity,
+  approveProAthlete,
+  rejectProAthlete,
+  getUserDocuments,
 } from "@/services/adminUserService";
 import { exportUsers } from "@/services/adminExportService";
 import { useNotifications } from "@/context/notifications";
@@ -51,6 +55,7 @@ import { getUserAvatarUrl } from "@/lib/imageUrl";
 const roles = ["All", "Organizer", "Player", "Coach"];
 const statuses = ["All", "Active", "Inactive", "Banned"];
 const banTypes = ["temporary", "permanent"];
+const aiVerifiedOptions = ["All", "true", "false"];
 
 export function Users() {
   const { notify } = useNotifications();
@@ -64,6 +69,8 @@ export function Users() {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [roleFilter, setRoleFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [isProAthleteFilter, setIsProAthleteFilter] = useState("All");
+  const [aiVerifiedFilter, setAiVerifiedFilter] = useState("All");
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState("desc");
   const [showFilters, setShowFilters] = useState(false);
@@ -83,6 +90,12 @@ export function Users() {
   const [bulkBanType, setBulkBanType] = useState("temporary");
   const [bulkBanDuration, setBulkBanDuration] = useState("7");
 
+  // Pro athlete verification dialogs
+  const [showApproveDialog, setShowApproveDialog] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [userToVerify, setUserToVerify] = useState(null);
+  const [verificationNotes, setVerificationNotes] = useState("");
+
   const loadUsers = async (opts = {}) => {
     try {
       setLoading(true);
@@ -91,6 +104,8 @@ export function Users() {
         q: query || undefined,
         role: roleFilter !== "All" ? roleFilter : undefined,
         status: statusFilter !== "All" ? statusFilter.toLowerCase() : undefined,
+        is_pro_athlete: isProAthleteFilter !== "All" ? (isProAthleteFilter === "true" ? true : false) : undefined,
+        ai_verified: aiVerifiedFilter !== "All" ? (aiVerifiedFilter === "true" ? true : false) : undefined,
         page,
         per_page: perPage,
         ...opts,
@@ -119,7 +134,7 @@ export function Users() {
   useEffect(() => {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, statusFilter]);
+  }, [page, statusFilter, roleFilter, isProAthleteFilter, aiVerifiedFilter]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -321,6 +336,55 @@ export function Users() {
     }
   };
 
+  const handleApproveProAthlete = async (user) => {
+    setUserToVerify(user);
+    setVerificationNotes("");
+    setShowApproveDialog(true);
+  };
+
+  const handleRejectProAthlete = async (user) => {
+    setUserToVerify(user);
+    setVerificationNotes("");
+    setShowRejectDialog(true);
+  };
+
+  const handleApproveConfirm = async () => {
+    if (!userToVerify) return;
+    try {
+      setActionLoading(true);
+      await approveProAthlete(userToVerify.id, verificationNotes);
+      notify('Pro athlete approved successfully', { color: 'green' });
+      setShowApproveDialog(false);
+      setUserToVerify(null);
+      setVerificationNotes("");
+      loadUsers();
+    } catch (err) {
+      notify(err.message || 'Failed to approve pro athlete', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectConfirm = async () => {
+    if (!userToVerify || !verificationNotes.trim()) {
+      notify('Verification notes are required', { color: 'amber' });
+      return;
+    }
+    try {
+      setActionLoading(true);
+      await rejectProAthlete(userToVerify.id, verificationNotes);
+      notify('Pro athlete verification rejected', { color: 'green' });
+      setShowRejectDialog(false);
+      setUserToVerify(null);
+      setVerificationNotes("");
+      loadUsers();
+    } catch (err) {
+      notify(err.message || 'Failed to reject pro athlete', { color: 'red' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const getUserStatus = (user) => {
     if (user.is_banned || user.status === "Banned") return "Banned";
     if (user.status) return user.status;
@@ -363,7 +427,7 @@ export function Users() {
 
           {/* Advanced Filters */}
           {showFilters && (
-            <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Select 
                 label="Role"
                 value={roleFilter}
@@ -381,6 +445,26 @@ export function Users() {
               >
                 {statuses.map(status => (
                   <Option key={status} value={status}>{status}</Option>
+                ))}
+              </Select>
+              
+              <Select 
+                label="Pro Athlete"
+                value={isProAthleteFilter}
+                onChange={(e) => { setIsProAthleteFilter(e); setPage(1); }}
+              >
+                <Option value="All">All</Option>
+                <Option value="true">Pro Athletes</Option>
+                <Option value="false">Non-Pro</Option>
+              </Select>
+              
+              <Select 
+                label="AI Verified"
+                value={aiVerifiedFilter}
+                onChange={(e) => { setAiVerifiedFilter(e); setPage(1); }}
+              >
+                {aiVerifiedOptions.map(opt => (
+                  <Option key={opt} value={opt}>{opt === "All" ? "All" : opt === "true" ? "AI Verified" : "Manual"}</Option>
                 ))}
               </Select>
             </div>
@@ -566,17 +650,37 @@ export function Users() {
                         </Typography>
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
-                        <Chip
-                          variant="ghost"
-                          color={isBanned ? "red" : userStatus === "Active" ? "green" : "gray"}
-                          value={userStatus}
-                          className="py-0.5 px-2 text-[11px] font-medium w-fit"
-                        />
-                        {isBanned && u.ban_reason && (
-                          <Typography className="text-xs text-red-500 mt-1 truncate max-w-[120px]" title={u.ban_reason}>
-                            {u.ban_reason}
-                          </Typography>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          <Chip
+                            variant="ghost"
+                            color={isBanned ? "red" : userStatus === "Active" ? "green" : "gray"}
+                            value={userStatus}
+                            className="py-0.5 px-2 text-[11px] font-medium w-fit"
+                          />
+                          {u.is_pro_athlete && (
+                            <Chip
+                              size="sm"
+                              variant="ghost"
+                              value={u.verified_at ? "Pro Athlete" : "Pending Verification"}
+                              color={u.verified_at ? "green" : "amber"}
+                              className="py-0.5 px-2 text-[10px] w-fit"
+                            />
+                          )}
+                          {u.verification_source && (
+                            <Chip
+                              size="sm"
+                              variant="ghost"
+                              value={u.verification_source === "ai" ? "AI Verified" : "Manual"}
+                              color={u.verification_source === "ai" ? "blue" : "gray"}
+                              className="py-0.5 px-2 text-[10px] w-fit"
+                            />
+                          )}
+                          {isBanned && u.ban_reason && (
+                            <Typography className="text-xs text-red-500 mt-1 truncate max-w-[120px]" title={u.ban_reason}>
+                              {u.ban_reason}
+                            </Typography>
+                          )}
+                        </div>
                       </td>
                       <td className={`py-3 px-5 ${idx !== filtered.length - 1 ? "border-b border-blue-gray-50" : ""}`}>
                         <Typography className="text-xs font-normal text-blue-gray-600">
@@ -610,6 +714,30 @@ export function Users() {
                                 <MenuItem className="flex items-center gap-2">
                                   <EyeIcon className="h-4 w-4" />
                                   View Details
+                                </MenuItem>
+                              </Link>
+                              {u.is_pro_athlete && !u.verified_at && (
+                                <>
+                                  <MenuItem 
+                                    className="flex items-center gap-2 text-green-600"
+                                    onClick={() => handleApproveProAthlete(u)}
+                                  >
+                                    <CheckCircleIcon className="h-4 w-4" />
+                                    Approve Pro Athlete
+                                  </MenuItem>
+                                  <MenuItem 
+                                    className="flex items-center gap-2 text-red-600"
+                                    onClick={() => handleRejectProAthlete(u)}
+                                  >
+                                    <XMarkIcon className="h-4 w-4" />
+                                    Reject Pro Athlete
+                                  </MenuItem>
+                                </>
+                              )}
+                              <Link href={`/dashboard/documents?entity_type=user&q=${u.id}`}>
+                                <MenuItem className="flex items-center gap-2">
+                                  <DocumentTextIcon className="h-4 w-4" />
+                                  View Documents
                                 </MenuItem>
                               </Link>
                               <MenuItem 
@@ -803,6 +931,105 @@ export function Users() {
                 ? `Unban ${selectedUsers.length} User(s)` 
                 : `Ban ${selectedUsers.length} User(s)`
             }
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Approve Pro Athlete Dialog */}
+      <Dialog 
+        open={showApproveDialog} 
+        handler={() => setShowApproveDialog(false)}
+        size="sm"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <Typography variant="h5" color="blue-gray">
+            Approve Pro Athlete
+          </Typography>
+          <IconButton
+            variant="text"
+            color="blue-gray"
+            onClick={() => setShowApproveDialog(false)}
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </IconButton>
+        </div>
+        <DialogBody className="space-y-4">
+          <Typography variant="paragraph" color="blue-gray">
+            Approve <strong>{userToVerify?.username || userToVerify?.email}</strong> as a Pro Athlete?
+          </Typography>
+          <Textarea
+            label="Verification Notes (Optional)"
+            value={verificationNotes}
+            onChange={(e) => setVerificationNotes(e.target.value)}
+            rows={3}
+            placeholder="Add any notes about this verification..."
+          />
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="text"
+            color="blue-gray"
+            onClick={() => setShowApproveDialog(false)}
+            className="mr-1"
+          >
+            Cancel
+          </Button>
+          <Button
+            color="green"
+            onClick={handleApproveConfirm}
+            disabled={actionLoading}
+          >
+            {actionLoading ? "Approving..." : "Approve"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Reject Pro Athlete Dialog */}
+      <Dialog 
+        open={showRejectDialog} 
+        handler={() => setShowRejectDialog(false)}
+        size="sm"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <Typography variant="h5" color="blue-gray">
+            Reject Pro Athlete Verification
+          </Typography>
+          <IconButton
+            variant="text"
+            color="blue-gray"
+            onClick={() => setShowRejectDialog(false)}
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </IconButton>
+        </div>
+        <DialogBody className="space-y-4">
+          <Typography variant="paragraph" color="blue-gray">
+            Reject Pro Athlete verification for <strong>{userToVerify?.username || userToVerify?.email}</strong>?
+          </Typography>
+          <Textarea
+            label="Verification Notes (Required)"
+            value={verificationNotes}
+            onChange={(e) => setVerificationNotes(e.target.value)}
+            rows={3}
+            placeholder="Explain why the verification is being rejected..."
+            required
+          />
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="text"
+            color="blue-gray"
+            onClick={() => setShowRejectDialog(false)}
+            className="mr-1"
+          >
+            Cancel
+          </Button>
+          <Button
+            color="red"
+            onClick={handleRejectConfirm}
+            disabled={actionLoading || !verificationNotes.trim()}
+          >
+            {actionLoading ? "Rejecting..." : "Reject"}
           </Button>
         </DialogFooter>
       </Dialog>

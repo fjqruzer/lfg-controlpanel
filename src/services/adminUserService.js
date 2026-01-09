@@ -23,4 +23,23 @@ export const unbanAdminUser = (id) =>
 export const getAdminUserActivity = (id) =>
   apiClient.get(`/admin/users/${id}/activity`);
 
+// Pro Athlete verification functions
+export const approveProAthlete = (id, verificationNotes = "") =>
+  apiClient.post(`/admin/users/${id}/approve`, {
+    verification_notes: verificationNotes,
+  });
+
+export const rejectProAthlete = (id, verificationNotes) =>
+  apiClient.post(`/admin/users/${id}/reject`, {
+    verification_notes: verificationNotes,
+  });
+
+// Get user documents
+export const getUserDocuments = (id) =>
+  apiClient.get(`/admin/users/${id}/documents`);
+
+// Get user statistics
+export const getUserStatistics = () =>
+  apiClient.get("/admin/users/statistics");
+
 

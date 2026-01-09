@@ -11,3 +11,5 @@ export * from "./documents";
 export * from "./document-detail";
 export * from "./tickets";
 export * from "./ticket-detail";
+export { Teams } from "./teams";
+export { Coaches } from "./coaches";
