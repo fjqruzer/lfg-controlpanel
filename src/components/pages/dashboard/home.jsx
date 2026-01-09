@@ -30,6 +30,7 @@ import { getAdminEvents } from "@/services/adminEventService";
 import { chartsConfig } from "@/configs";
 import Link from "next/link";
 import { getUserAvatarUrl } from "@/lib/imageUrl";
+import { RecentActivity } from "./recent-activity";
 
 export function Home() {
   const [overview, setOverview] = useState(null);
@@ -346,7 +347,7 @@ export function Home() {
       </div>
 
       {/* Recent Activity Section */}
-      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
         {/* Recent Users */}
         <Card className="border border-blue-gray-50">
           <CardHeader className="m-0 p-4 bg-transparent shadow-none">
@@ -452,6 +453,9 @@ export function Home() {
             )}
           </CardBody>
         </Card>
+
+        {/* Recent Activity Feed */}
+        <RecentActivity limit={10} showHeader={true} />
       </div>
     </div>
   );

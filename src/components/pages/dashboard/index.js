@@ -13,3 +13,4 @@ export * from "./tickets";
 export * from "./ticket-detail";
 export { Teams } from "./teams";
 export { Coaches } from "./coaches";
+export { RecentActivity } from "./recent-activity";
