@@ -14,3 +14,5 @@ export * from './adminExportService';
 export * from './adminRatingsService';
 export * from './adminDocumentService';
 export * from './adminAIDocumentService';
+export * from './adminTeamService';
+export * from './adminCoachService';
